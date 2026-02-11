@@ -18,6 +18,14 @@ Bien entendu, son utilisation ne dispense en aucun cas de savoir faire les manip
 **ATTENTION** : il n'est pas recommandé d'utiliser YARP en production, ce projet n'as pas été fait pour cela. J'ai largement utilisé l'IA, il n'est donc surement pas adapté.
 Toutefois, si des personnes plus calées en dev python veulent s'emparer du sujet, welcome !
 
+## Pourquoi Alpine Linux ?
+
+Alpine Linux a été choisi pour YARP pour sa légèreté (±130 MB installé), 
+sa sécurité (musl libc, PaX/grsecurity), et sa philosophie minimaliste 
+parfaitement adaptée aux appliances réseau. Son gestionnaire de paquets 
+APK et son système d'init OpenRC offrent rapidité et simplicité.
+
+
 ## **Fonctionnalités Principales**
 
 ### **Implémentées**
@@ -43,49 +51,60 @@ Toutefois, si des personnes plus calées en dev python veulent s'emparer du suje
 
 ---
 
-## 🚀 **Installation**
+## **Installation**
 
 ### **Prérequis**
 - **Alpine Linux** (version 3.18+)
-- **Accès root** pour l'installation
-- **Python 3** et **iptables** (installés automatiquement)
+- **Accès root** (par défaut sur Alpine Linux - pas de `sudo` nécessaire)
+- **Connexion internet** pour télécharger les dépendances
 
-### **Installation Rapide**
+
+### **Installation Simple**
 
 ```bash
 # 1. Cloner le projet
 git clone https://github.com/Kptainflintt/yarp
 cd yarp
 
-# 2. Installer YARP
-sudo make install
+# 2. Installer YARP (installe automatiquement toutes les dépendances)
+./install.sh
 
 # 3. Vérifier l'installation
 yarp version
 yarp validate
 
-# 4. Configurer (éditer selon vos besoins)
-sudo cp config/yarp.yaml.example /etc/yarp/config.yaml
-sudo nano /etc/yarp/config.yaml
+# 4. Copier et éditer la configuration
+cp config/yarp.yaml.example /etc/yarp/config.yaml
+nano /etc/yarp/config.yaml
 
 # 5. Appliquer la configuration
-sudo yarp apply
+yarp apply
 ```
 
-### **Installation Manuelle**
+### **Alternative avec Make**
 
 ```bash
-# Installer les dépendances
-sudo apk update
-sudo apk add python3 py3-yaml iproute2 iptables
+# Installation via Makefile
+make install
 
-# Installer YARP
-sudo ./install.sh
-
-# Activer le service OpenRC
-sudo rc-update add yarp default
-sudo rc-service yarp start
+# Tests de validation
+make test
 ```
+
+### **Activation du Service OpenRC (optionnel)**
+
+```bash
+# Activer le service au démarrage
+rc-update add yarp default
+
+# Démarrer le service
+rc-service yarp start
+```
+
+**Note :** `install.sh` installe automatiquement toutes les dépendances nécessaires :
+- `python3` et `py3-yaml` pour l'exécution
+- `iproute2` pour la gestion réseau (`ip` command)
+- `iptables` et `ip6tables` pour les règles firewall/NAT
 
 ---
 
@@ -151,8 +170,8 @@ firewall:
 
 ```bash
 # Application de configuration
-sudo yarp apply              # Appliquer la configuration complète
-sudo yarp reload             # Recharger la configuration
+yarp apply                   # Appliquer la configuration complète
+yarp reload                  # Recharger la configuration
 
 # Validation et debug
 yarp validate                # Valider la syntaxe YAML
@@ -168,34 +187,34 @@ yarp --help                  # Aide générale
 
 ```bash
 # Module réseau
-sudo python3 /opt/yarp/modules/network.py apply
-sudo python3 /opt/yarp/modules/network.py <config.yaml>
+python3 /opt/yarp/modules/network.py apply
+python3 /opt/yarp/modules/network.py <config.yaml>
 
 # Module routage
-sudo python3 /opt/yarp/modules/routing.py apply
-sudo python3 /opt/yarp/modules/routing.py show
+python3 /opt/yarp/modules/routing.py apply
+python3 /opt/yarp/modules/routing.py show
 
 # Module NAT
-sudo python3 /opt/yarp/modules/nat.py apply
-sudo python3 /opt/yarp/modules/nat.py show
-sudo python3 /opt/yarp/modules/nat.py clear
+python3 /opt/yarp/modules/nat.py apply
+python3 /opt/yarp/modules/nat.py show
+python3 /opt/yarp/modules/nat.py clear
 ```
 
 ### **Diagnostic et Logs**
 
 ```bash
 # Logs en temps réel
-sudo tail -f /var/log/yarp/apply.log
+tail -f /var/log/yarp/apply.log
 
 # Logs debug (si activé)
-sudo tail -f /var/log/yarp/debug.log | jq .
+tail -f /var/log/yarp/debug.log | jq .
 
 # Logs erreurs uniquement
-sudo tail -f /var/log/yarp/error.log
+tail -f /var/log/yarp/error.log
 
 # État iptables
-sudo iptables -L -n -v
-sudo iptables -t nat -L -n -v
+iptables -L -n -v
+iptables -t nat -L -n -v
 
 # État réseau
 ip addr show
@@ -207,13 +226,13 @@ cat /proc/sys/net/ipv4/ip_forward
 
 ```bash
 # Service OpenRC
-sudo rc-service yarp start
-sudo rc-service yarp stop
-sudo rc-service yarp restart
-sudo rc-service yarp status
+rc-service yarp start
+rc-service yarp stop
+rc-service yarp restart
+rc-service yarp status
 
 # Logs service
-sudo rc-service yarp start --verbose
+rc-service yarp start --verbose
 ```
 
 ### **Tests et Développement**
@@ -226,7 +245,7 @@ make test
 make clean
 
 # Désinstallation
-sudo make uninstall  # Attention : supprime toute la config YARP
+make uninstall  # Attention : supprime toute la config YARP
 ```
 
 ---
@@ -265,6 +284,9 @@ cd yarp
 
 # Tests avant commit
 make test
+
+# Installation pour tests
+./install.sh
 
 # Structure d'un nouveau module
 cp src/modules/network.py src/modules/mon_module.py
