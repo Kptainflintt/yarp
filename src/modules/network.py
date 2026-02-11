@@ -7,6 +7,7 @@ Gestion des interfaces réseau
 import subprocess
 import sys
 import re
+import os
 from pathlib import Path
 
 YARP_DIR = "/opt/yarp"
@@ -79,13 +80,22 @@ class NetworkManager:
     def enable_dhcp(self, iface):
         """Active DHCP sur une interface"""
         print(f"Activation DHCP sur {iface}")
-        # Arrêter dhcpcd existant pour cette interface
+    
+        # Arrêter les clients DHCP existants pour cette interface
         self._run_command(f"pkill -f 'dhcpcd.*{iface}'", check=False)
-        # Démarrer dhcpcd
-        success, _, stderr = self._run_command(f"dhcpcd {iface}")
+        self._run_command(f"pkill -f 'udhcpc.*{iface}'", check=False)
+    
+        # Alpine Linux utilise udhcpc par défaut
+        # Démarrer udhcpc en arrière-plan
+        success, _, stderr = self._run_command(
+            f"udhcpc -i {iface} -f -S &",
+            check=False
+        )
+    
         if not success:
             print(f"Erreur DHCP sur {iface}: {stderr}", file=sys.stderr)
-        return success
+    
+        return True 
     
     def enable_ipv6_auto(self, iface):
         """Active l'autoconfiguration IPv6"""
@@ -145,10 +155,13 @@ class NetworkManager:
 def main():
     from yarp_config import YARPConfig
     
-    config = YARPConfig()
+    # Accepter le chemin du fichier config en argument
+    config_file = sys.argv[1] if len(sys.argv) > 1 else "/etc/yarp/config.yaml"
+    
+    config = YARPConfig(config_file)
     if not config.load() or not config.validate():
         sys.exit(1)
-    
+      
     manager = NetworkManager(config)
     
     if len(sys.argv) > 1 and sys.argv[1] == "apply":

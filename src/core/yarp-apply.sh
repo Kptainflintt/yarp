@@ -1,14 +1,15 @@
 #!/bin/bash
 # YARP Apply Script
-# Applique la configuration complète
 
 set -e
 
 YARP_DIR="/opt/yarp"
 CONFIG_FILE="/etc/yarp/config.yaml"
 LOG_FILE="/var/log/yarp/apply.log"
+ALPINE_INTERFACES="/etc/network/interfaces"
+ALPINE_BACKUP="/etc/network/interfaces.yarp-backup"
 
-export PYTHONPATH="$YARP_DIR/core:$PYTHONPATH" 
+export PYTHONPATH="$YARP_DIR/core:$PYTHONPATH"
 
 # Logging
 log() {
@@ -20,19 +21,6 @@ error() {
     exit 1
 }
 
-# Vérification des prérequis
-check_root() {
-    if [ "$(id -u)" -ne 0 ]; then
-        error "Ce script doit être exécuté en root"
-    fi
-}
-
-check_config() {
-    if [ ! -f "$CONFIG_FILE" ]; then
-        error "Fichier de configuration introuvable: $CONFIG_FILE"
-    fi
-}
-
 # Validation de la configuration
 validate_config() {
     log "Validation de la configuration..."
@@ -42,61 +30,108 @@ validate_config() {
     log "Configuration valide"
 }
 
-# Application de la configuration système
-apply_system() {
-    log "=== Configuration Système ==="
+# Backup de la configuration Alpine
+backup_alpine_config() {
+    if [ ! -f "$ALPINE_BACKUP" ]; then
+        log "Sauvegarde de la configuration Alpine originale..."
+        cp "$ALPINE_INTERFACES" "$ALPINE_BACKUP"
+    fi
+}
+
+# Désactiver la gestion Alpine pour les interfaces YARP
+disable_alpine_networking() {
+    log "Désactivation de la gestion Alpine pour les interfaces YARP..."
     
-    # Récupérer la config système
-    local hostname=$(python3 -c "
+    # Lire les interfaces depuis la config YAML
+    local interfaces=$(python3 -c "
+import sys
 import yaml
-with open('$CONFIG_FILE') as f:
+sys.path.insert(0, '$YARP_DIR/core')
+
+with open('$CONFIG_FILE', 'r') as f:
     config = yaml.safe_load(f)
-    print(config.get('system', {}).get('hostname', 'yarp-router'))
+    
+if 'interfaces' in config:
+    for iface in config['interfaces'].keys():
+        print(iface)
 ")
     
-    # Configurer le hostname
+    # Créer un nouveau fichier interfaces sans les interfaces YARP
+    cat > "$ALPINE_INTERFACES" << 'EOF'
+# Configuration réseau Alpine - Géré par YARP
+# Les interfaces suivantes sont gérées par YARP:
+EOF
+    
+    for iface in $interfaces; do
+        echo "# - $iface (géré par YARP)" >> "$ALPINE_INTERFACES"
+    done
+    
+    echo "" >> "$ALPINE_INTERFACES"
+    echo "auto lo" >> "$ALPINE_INTERFACES"
+    echo "iface lo inet loopback" >> "$ALPINE_INTERFACES"
+    
+    log "Configuration Alpine mise à jour"
+}
+
+# Configuration du système
+configure_system() {
+    log "=== Configuration Système ==="
+    
+    # Hostname
+    local hostname=$(python3 -c "
+import sys, yaml
+sys.path.insert(0, '$YARP_DIR/core')
+with open('$CONFIG_FILE') as f:
+    print(yaml.safe_load(f).get('system', {}).get('hostname', ''))
+")
+    
     if [ -n "$hostname" ]; then
         log "Configuration hostname: $hostname"
         hostname "$hostname"
         echo "$hostname" > /etc/hostname
+        
+        # Persister dans /etc/hosts
+        sed -i "/127.0.0.1.*localhost/c\127.0.0.1\tlocalhost $hostname" /etc/hosts
     fi
 }
 
-# Application de la configuration réseau
-apply_network() {
+# Configuration réseau
+configure_network() {
     log "=== Configuration Réseau ==="
     
-    cd "$YARP_DIR/modules"
-    if ! python3 network.py apply; then
+    if ! python3 "$YARP_DIR/modules/network.py" "$CONFIG_FILE"; then
         error "Erreur lors de la configuration réseau"
     fi
+    
+    log "Configuration réseau appliquée"
 }
 
-# Application du routage
-apply_routing() {
+# Configuration du routage
+configure_routing() {
     log "=== Configuration Routage ==="
     
-    cd "$YARP_DIR/modules"
-    if ! python3 routing.py apply; then
+    if ! python3 "$YARP_DIR/modules/routing.py" "$CONFIG_FILE"; then
         error "Erreur lors de la configuration du routage"
     fi
+    
+    log "Configuration routage appliquée"
 }
 
-# Affichage du résumé
-show_summary() {
-    log ""
-    log "==================================="
-    log "Configuration appliquée avec succès"
-    log "==================================="
-    log ""
-    log "État des interfaces:"
-    ip -br addr
-    log ""
-    log "Table de routage IPv4:"
-    ip route
-    log ""
-    log "Table de routage IPv6:"
-    ip -6 route
+# Sauvegarder l'état actuel
+save_state() {
+    log "Sauvegarde de l'état..."
+    
+    mkdir -p /var/lib/yarp
+    
+    # Sauvegarder les interfaces
+    ip -j addr show > /var/lib/yarp/interfaces.json
+    ip -j route show > /var/lib/yarp/routes.json
+    
+    # Sauvegarder les règles firewall
+    iptables-save > /var/lib/yarp/iptables.rules 2>/dev/null || true
+    ip6tables-save > /var/lib/yarp/ip6tables.rules 2>/dev/null || true
+    
+    log "État sauvegardé"
 }
 
 # Main
@@ -105,17 +140,17 @@ main() {
     log "YARP - Application de la configuration"
     log "======================================"
     
-    check_root
-    check_config
     validate_config
+    backup_alpine_config
+    disable_alpine_networking
+    configure_system
+    configure_network
+    configure_routing
+    save_state
     
-    apply_system
-    apply_network
-    apply_routing
-    
-    show_summary
-    
-    log "Terminé"
+    log "======================================"
+    log "✓ Configuration appliquée avec succès"
+    log "======================================"
 }
 
-main "$@"
+main

@@ -135,7 +135,10 @@ class RoutingManager:
 def main():
     from yarp_config import YARPConfig
     
-    config = YARPConfig()
+    # Accepter le chemin du fichier config en argument
+    config_file = sys.argv[1] if len(sys.argv) > 1 else "/etc/yarp/config.yaml"
+    
+    config = YARPConfig(config_file)
     if not config.load() or not config.validate():
         sys.exit(1)
     

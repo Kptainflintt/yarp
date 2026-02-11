@@ -1,0 +1,35 @@
+#!/sbin/openrc-run
+# YARP Service
+
+name="yarp"
+description="YAML Alpine Router Project"
+
+depend() {
+    need net localmount
+    after firewall
+}
+
+start() {
+    ebegin "Starting YARP configuration"
+    
+    # Désactiver la gestion réseau Alpine pour les interfaces YARP
+    if [ -f /etc/yarp/config.yaml ]; then
+        /opt/yarp/bin/yarp-apply
+        eend $?
+    else
+        eerror "Configuration file not found"
+        eend 1
+    fi
+}
+
+stop() {
+    ebegin "Stopping YARP"
+    # Rien à faire pour l'instant
+    eend 0
+}
+
+reload() {
+    ebegin "Reloading YARP configuration"
+    /opt/yarp/bin/yarp-apply
+    eend $?
+}

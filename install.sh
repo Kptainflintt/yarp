@@ -20,7 +20,7 @@ echo "==================================="
 
 # Installation des dépendances
 echo ""
-echo "[1/6] Installation des dépendances..."
+echo "[1/7] Installation des dépendances..."
 apk update
 apk add --no-cache \
     python3 \
@@ -33,7 +33,7 @@ apk add --no-cache \
 
 # Création des répertoires
 echo ""
-echo "[2/6] Création de la structure..."
+echo "[2/7] Création de la structure..."
 mkdir -p "$BINDIR"
 mkdir -p "$COREDIR"
 mkdir -p "$MODULEDIR"
@@ -43,14 +43,14 @@ mkdir -p /var/run/yarp
 
 # Copie des fichiers core
 echo ""
-echo "[3/6] Installation des fichiers core..."
+echo "[3/7] Installation des fichiers core..."
 install -m 755 src/core/yarp "$BINDIR/yarp"
 install -m 755 src/core/yarp-apply.sh "$BINDIR/yarp-apply"
 install -m 644 src/core/yarp_config.py "$COREDIR/yarp_config.py"
 
 # Copie des modules
 echo ""
-echo "[4/6] Installation des modules..."
+echo "[4/7] Installation des modules..."
 install -m 644 src/modules/network.py "$MODULEDIR/network.py"
 install -m 644 src/modules/routing.py "$MODULEDIR/routing.py"
 
@@ -58,15 +58,20 @@ install -m 644 src/modules/routing.py "$MODULEDIR/routing.py"
 touch "$COREDIR/__init__.py"
 touch "$MODULEDIR/__init__.py"
 
+echo ""
+echo "[5/7] Installation du service OpenRC..."
+install -m 755 src/init/yarp /etc/init.d/yarp
+echo ""
+
 # Liens symboliques
 echo ""
-echo "[5/6] Création des liens symboliques..."
+echo "[6/7] Création des liens symboliques..."
 ln -sf "$BINDIR/yarp" /usr/local/bin/yarp
 ln -sf "$BINDIR/yarp-apply" /usr/local/bin/yarp-apply
 
 # Configuration système
 echo ""
-echo "[6/6] Configuration système..."
+echo "[7/7] Configuration système..."
 
 # Activer le forwarding
 cat > /etc/sysctl.d/yarp.conf << 'EOF'
