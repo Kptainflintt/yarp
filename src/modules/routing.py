@@ -6,6 +6,7 @@ Gestion des routes statiques
 
 import subprocess
 import sys
+import os
 import ipaddress
 
 YARP_DIR = "/opt/yarp"
