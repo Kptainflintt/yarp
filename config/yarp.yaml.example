@@ -4,13 +4,43 @@ system:
   domain: lab.local
   timezone: Europe/Paris
 
+# Configuration des logs
+logging:
+  # Niveau de logs: DEBUG, INFO, WARNING, ERROR
+  level: INFO
+
+  # Mode debug activé par défaut pour voir plus de détails
+  debug: false
+
+  # Logs dans les fichiers
+  files:
+    # Log principal de l'application
+    application: "/var/log/yarp/apply.log"
+    # Log détaillé pour debug (si debug: true)
+    debug: "/var/log/yarp/debug.log"
+    # Log des erreurs uniquement
+    error: "/var/log/yarp/error.log"
+
+  # Formats de logs
+  formats:
+    # Format console (ce que voit l'utilisateur)
+    console: "simple"  # simple, detailed, minimal
+    # Format fichier (logs structurés)
+    file: "json"       # json, text, detailed
+
+  # Modules spécialisés
+  modules:
+    network: INFO      # Logs networking
+    routing: INFO      # Logs routing
+    firewall: WARNING  # Logs firewall (moins verbeux par défaut)
+
 interfaces:
   # Interface WAN (vers Internet)
   eth0:
     description: "Interface WAN"
     ipv4: dhcp
     zone: WAN
-  
+
   # Interface LAN (réseau local)
   eth1:
     description: "Interface LAN"
@@ -24,7 +54,7 @@ routing:
     - to: 0.0.0.0/0
       via: 192.168.100.1
       interface: eth0
-    
+
     # Route vers un sous-réseau spécifique
     - to: 10.0.0.0/24
       via: 192.168.1.254

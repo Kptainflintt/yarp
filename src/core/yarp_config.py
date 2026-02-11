@@ -87,6 +87,42 @@ class YARPConfig:
         """Retourne les routes statiques"""
         routing = self.get_routing()
         return routing.get('static', [])
+
+    def get_logging(self):
+        """Retourne la configuration de logging avec valeurs par défaut"""
+        default_logging = {
+            'level': 'INFO',
+            'debug': False,
+            'files': {
+                'application': '/var/log/yarp/apply.log',
+                'debug': '/var/log/yarp/debug.log',
+                'error': '/var/log/yarp/error.log'
+            },
+            'formats': {
+                'console': 'simple',
+                'file': 'json'
+            },
+            'modules': {
+                'network': 'INFO',
+                'routing': 'INFO',
+                'firewall': 'WARNING'
+            }
+        }
+
+        # Fusionner avec la config existante
+        user_logging = self.config.get('logging', {})
+
+        # Merge récursif des dictionnaires
+        def merge_dict(default, user):
+            result = default.copy()
+            for key, value in user.items():
+                if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+                    result[key] = merge_dict(result[key], value)
+                else:
+                    result[key] = value
+            return result
+
+        return merge_dict(default_logging, user_logging)
     
     def dump_json(self):
         """Exporte la config en JSON pour les scripts shell"""

@@ -15,14 +15,20 @@ YARP_DIR = "/opt/yarp"
 sys.path.insert(0, os.path.join(YARP_DIR, 'core'))
 
 from yarp_config import YARPConfig
+from yarp_logger import get_logger
 
 class NetworkManager:
     def __init__(self, config):
         self.config = config
         self.interfaces = config.get_interfaces()
+
+        # Initialiser le logger avec la config YARP
+        logging_config = config.get_logging()
+        self.logger = get_logger("network", {'logging': logging_config})
     
     def _run_command(self, cmd, check=True):
-        """Exécute une commande système"""
+        """Exécute une commande système avec logging"""
+        start_time = time.time()
         try:
             result = subprocess.run(
                 cmd,
@@ -31,8 +37,15 @@ class NetworkManager:
                 text=True,
                 check=check
             )
+            duration_ms = int((time.time() - start_time) * 1000)
+
+            # Logger l'exécution commande
+            self.logger.command_execution(cmd, result.returncode, duration_ms)
+
             return result.returncode == 0, result.stdout, result.stderr
         except subprocess.CalledProcessError as e:
+            duration_ms = int((time.time() - start_time) * 1000)
+            self.logger.command_execution(cmd, e.returncode, duration_ms)
             return False, e.stdout, e.stderr
     
     def interface_exists(self, iface):
@@ -42,30 +55,50 @@ class NetworkManager:
     
     def bring_interface_up(self, iface):
         """Active une interface"""
-        print(f"Activation de l'interface {iface}")
+        self.logger.debug(f"Activation de l'interface {iface}")
         success, _, stderr = self._run_command(f"ip link set {iface} up")
-        if not success:
-            print(f"Erreur lors de l'activation de {iface}: {stderr}", file=sys.stderr)
+
+        if success:
+            self.logger.interface_operation("activation", iface, "success")
+        else:
+            self.logger.interface_operation("activation", iface, "failed", error=stderr)
+
         return success
     
     def bring_interface_down(self, iface):
         """Désactive une interface"""
-        print(f"Désactivation de l'interface {iface}")
-        return self._run_command(f"ip link set {iface} down")[0]
+        self.logger.debug(f"Désactivation de l'interface {iface}")
+        success = self._run_command(f"ip link set {iface} down")[0]
+
+        if success:
+            self.logger.interface_operation("deactivation", iface, "success")
+        else:
+            self.logger.interface_operation("deactivation", iface, "failed")
+
+        return success
     
     def flush_addresses(self, iface):
         """Supprime toutes les adresses d'une interface"""
-        print(f"Nettoyage des adresses de {iface}")
-        self._run_command(f"ip addr flush dev {iface}", check=False)
+        self.logger.debug(f"Nettoyage des adresses de {iface}")
+        success, _, stderr = self._run_command(f"ip addr flush dev {iface}", check=False)
+
+        if success:
+            self.logger.interface_operation("flush_addresses", iface, "success")
+        else:
+            self.logger.interface_operation("flush_addresses", iface, "failed", error=stderr)
     
     def set_ipv4_address(self, iface, address):
         """Configure une adresse IPv4"""
-        print(f"Configuration IPv4 de {iface}: {address}")
+        self.logger.info(f"Configuration IPv4 de {iface}: {address}")
         success, _, stderr = self._run_command(
             f"ip addr add {address} dev {iface}"
         )
-        if not success:
-            print(f"Erreur IPv4 sur {iface}: {stderr}", file=sys.stderr)
+
+        if success:
+            self.logger.interface_operation("ipv4_config", iface, "success", address=address)
+        else:
+            self.logger.interface_operation("ipv4_config", iface, "failed", address=address, error=stderr)
+
         return success
     
     def set_ipv6_address(self, iface, address):
