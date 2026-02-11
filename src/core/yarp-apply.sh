@@ -109,12 +109,23 @@ configure_network() {
 # Configuration du routage
 configure_routing() {
     log "=== Configuration Routage ==="
-    
+
     if ! python3 "$YARP_DIR/modules/routing.py" "$CONFIG_FILE"; then
         error "Erreur lors de la configuration du routage"
     fi
-    
+
     log "Configuration routage appliquée"
+}
+
+# Configuration NAT/firewall
+configure_nat() {
+    log "=== Configuration NAT/Firewall ==="
+
+    if ! python3 "$YARP_DIR/modules/nat.py" "$CONFIG_FILE"; then
+        error "Erreur lors de la configuration NAT"
+    fi
+
+    log "Configuration NAT appliquée"
 }
 
 # Sauvegarder l'état actuel
@@ -139,15 +150,16 @@ main() {
     log "======================================"
     log "YARP - Application de la configuration"
     log "======================================"
-    
+
     validate_config
     backup_alpine_config
     disable_alpine_networking
     configure_system
     configure_network
     configure_routing
+    configure_nat
     save_state
-    
+
     log "======================================"
     log "✓ Configuration appliquée avec succès"
     log "======================================"

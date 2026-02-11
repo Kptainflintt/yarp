@@ -31,6 +31,7 @@ for file in \
     "src/core/yarp_logger.py" \
     "src/modules/network.py" \
     "src/modules/routing.py" \
+    "src/modules/nat.py" \
     "install/setup.sh"
 do
     if [ -f "$file" ]; then
@@ -62,7 +63,8 @@ for file in \
     "src/core/yarp_config.py" \
     "src/core/yarp_logger.py" \
     "src/modules/network.py" \
-    "src/modules/routing.py"
+    "src/modules/routing.py" \
+    "src/modules/nat.py"
 do
     if python3 -m py_compile "$file" 2>/dev/null; then
         test_pass "Syntaxe Python valide: $file"

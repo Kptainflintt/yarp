@@ -48,12 +48,33 @@ class YARPConfig:
                         ipaddress.ip_network(config['ipv4'], strict=False)
                     except ValueError:
                         errors.append(f"IPv4 invalide pour {iface}: {config['ipv4']}")
-                
+
                 if 'ipv6' in config and config['ipv6'] != 'auto':
                     try:
                         ipaddress.ip_network(config['ipv6'], strict=False)
                     except ValueError:
                         errors.append(f"IPv6 invalide pour {iface}: {config['ipv6']}")
+
+                # Validation NAT/masquerading
+                if 'masquerading' in config:
+                    if not isinstance(config['masquerading'], bool):
+                        errors.append(f"masquerading pour {iface} doit être true/false")
+
+                    # Si masquerading activé, vérifier les sources
+                    if config['masquerading'] and 'masquerade_sources' in config:
+                        sources = config['masquerade_sources']
+                        if not isinstance(sources, list):
+                            errors.append(f"masquerade_sources pour {iface} doit être une liste")
+                        else:
+                            for idx, source in enumerate(sources):
+                                try:
+                                    ipaddress.ip_network(source, strict=False)
+                                except ValueError:
+                                    errors.append(f"Source invalide pour {iface}[{idx}]: {source}")
+
+                    # Avertir si masquerading sans sources
+                    if config['masquerading'] and 'masquerade_sources' not in config:
+                        errors.append(f"masquerading activé sur {iface} mais aucune source spécifiée")
         
         # Validation routes
         if 'routing' in self.config and 'static' in self.config['routing']:

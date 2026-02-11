@@ -54,6 +54,7 @@ echo ""
 echo "[4/7] Installation des modules..."
 install -m 644 src/modules/network.py "$MODULEDIR/network.py"
 install -m 644 src/modules/routing.py "$MODULEDIR/routing.py"
+install -m 644 src/modules/nat.py "$MODULEDIR/nat.py"
 
 # Création des __init__.py pour Python
 touch "$COREDIR/__init__.py"
