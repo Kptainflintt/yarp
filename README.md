@@ -71,13 +71,15 @@ cd yarp
 
 # 3. Vérifier l'installation
 yarp version
-yarp validate
 
 # 4. Copier et éditer la configuration
 cp config/yarp.yaml.example /etc/yarp/config.yaml
 nano /etc/yarp/config.yaml
 
-# 5. Appliquer la configuration
+# 5. Vérifier le fichier de configuration
+yarp validate
+
+# 6. Appliquer la configuration
 yarp apply
 ```
 
