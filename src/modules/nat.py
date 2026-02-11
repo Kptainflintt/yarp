@@ -110,19 +110,67 @@ class NATManager:
 
         return success_v4
 
+    def _run_command_silent(self, cmd):
+        """Exécute une commande silencieuse (pour nettoyage, sans logging d'erreur)"""
+        try:
+            result = subprocess.run(
+                cmd,
+                shell=True,
+                capture_output=True,
+                text=True,
+                check=False
+            )
+            return result.returncode == 0, result.stdout, result.stderr
+        except Exception:
+            return False, "", ""
+
     def clear_nat_rules(self):
         """Nettoie les règles NAT existantes de YARP"""
         self.logger.info("Nettoyage des règles NAT existantes")
 
-        # Supprimer les règles YARP dans la table nat
-        self._run_command("iptables -t nat -D POSTROUTING -m comment --comment 'YARP-NAT' -j MASQUERADE", check=False)
+        # Supprimer toutes les règles YARP-NAT-* de la table nat
+        # Utiliser une approche plus robuste
+        rules_cleaned = 0
 
-        # Supprimer les règles YARP dans la table filter
-        self._run_command("iptables -D FORWARD -m comment --comment 'YARP-FORWARD' -j ACCEPT", check=False)
+        # Lister les règles POSTROUTING et supprimer celles avec YARP-NAT
+        success, stdout, _ = self._run_command_silent("iptables -t nat -L POSTROUTING --line-numbers | grep 'YARP-NAT'")
+        if success and stdout.strip():
+            # Supprimer les règles en partant de la fin
+            lines = stdout.strip().split('\n')
+            line_numbers = []
+            for line in lines:
+                if 'YARP-NAT' in line:
+                    line_num = line.split()[0]
+                    if line_num.isdigit():
+                        line_numbers.append(int(line_num))
 
-        # Flush des chaînes YARP custom si elles existent
-        self._run_command("iptables -t nat -F YARP-MASQUERADE", check=False)
-        self._run_command("iptables -t nat -X YARP-MASQUERADE", check=False)
+            # Supprimer en ordre décroissant pour éviter les décalages
+            for line_num in sorted(line_numbers, reverse=True):
+                success, _, _ = self._run_command_silent(f"iptables -t nat -D POSTROUTING {line_num}")
+                if success:
+                    rules_cleaned += 1
+
+        # Supprimer toutes les règles YARP-FORWARD de la table filter
+        success, stdout, _ = self._run_command_silent("iptables -L FORWARD --line-numbers | grep 'YARP-FORWARD'")
+        if success and stdout.strip():
+            lines = stdout.strip().split('\n')
+            line_numbers = []
+            for line in lines:
+                if 'YARP-FORWARD' in line:
+                    line_num = line.split()[0]
+                    if line_num.isdigit():
+                        line_numbers.append(int(line_num))
+
+            # Supprimer en ordre décroissant
+            for line_num in sorted(line_numbers, reverse=True):
+                success, _, _ = self._run_command_silent(f"iptables -D FORWARD {line_num}")
+                if success:
+                    rules_cleaned += 1
+
+        if rules_cleaned > 0:
+            self.logger.info(f"{rules_cleaned} règles YARP nettoyées")
+        else:
+            self.logger.debug("Aucune règle YARP existante à nettoyer (normal au premier lancement)")
 
     def setup_masquerade_rules(self, nat_interfaces):
         """Configure les règles de masquerading"""
