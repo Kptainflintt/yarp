@@ -8,6 +8,7 @@ import subprocess
 import sys
 import re
 import os
+import time
 from pathlib import Path
 
 YARP_DIR = "/opt/yarp"
@@ -77,27 +78,60 @@ class NetworkManager:
             print(f"Erreur IPv6 sur {iface}: {stderr}", file=sys.stderr)
         return success
     
+    def has_dhcp_address(self, iface):
+        """Vérifie si l'interface a déjà une adresse IP (probablement DHCP)"""
+        success, stdout, _ = self._run_command(f"ip -4 addr show {iface} | grep inet", check=False)
+        if success and stdout.strip():
+            # Exclure les adresses link-local (169.254.x.x)
+            lines = stdout.strip().split('\n')
+            for line in lines:
+                if 'inet ' in line and '169.254.' not in line:
+                    return True
+        return False
+
+    def is_dhcp_running(self, iface):
+        """Vérifie si un client DHCP est déjà actif pour cette interface"""
+        success, _, _ = self._run_command(f"pgrep -f 'udhcpc.*{iface}'", check=False)
+        return success
+
     def enable_dhcp(self, iface):
         """Active DHCP sur une interface"""
         print(f"Activation DHCP sur {iface}")
+
+        # Vérifier si l'interface a déjà une adresse IP
+        if self.has_dhcp_address(iface):
+            print(f"Interface {iface} a déjà une adresse IP")
+
+            # Vérifier si un client DHCP est actif
+            if self.is_dhcp_running(iface):
+                print(f"Client DHCP déjà actif sur {iface} - configuration préservée")
+                return True
+            else:
+                print(f"Adresse IP présente mais pas de client DHCP - redémarrage")
 
         # Arrêter les clients DHCP existants pour cette interface
         self._run_command(f"pkill -f 'dhcpcd.*{iface}'", check=False)
         self._run_command(f"pkill -f 'udhcpc.*{iface}'", check=False)
 
-        # Alpine Linux utilise udhcpc par défaut
-        # Démarrer udhcpc en arrière-plan (sans &)
+        # Attendre un peu que les processus se terminent
+        time.sleep(1)
+
+        # Démarrer udhcpc en arrière-plan avec timeout
+        print(f"Démarrage du client DHCP pour {iface}...")
+
+        # Utiliser timeout pour éviter le blocage
         success, stdout, stderr = self._run_command(
-            f"udhcpc -i {iface} -f -S",
+            f"timeout 30 udhcpc -i {iface} -t 3 -T 10 -A 10 -n",
             check=False
         )
 
-        if not success:
-            print(f"Erreur DHCP sur {iface}: {stderr}", file=sys.stderr)
+        if success:
+            print(f"DHCP configuré avec succès sur {iface}")
+            return True
+        else:
+            print(f"DHCP timeout ou erreur sur {iface}: {stderr}", file=sys.stderr)
+            print(f"L'interface {iface} restera sans configuration IP", file=sys.stderr)
             return False
-
-        print(f"DHCP activé sur {iface}")
-        return True
     
     def enable_ipv6_auto(self, iface):
         """Active l'autoconfiguration IPv6"""
@@ -109,32 +143,44 @@ class NetworkManager:
     def configure_interface(self, iface, config):
         """Configure une interface complète"""
         print(f"\n=== Configuration de {iface} ===")
-        
+
         if not self.interface_exists(iface):
             print(f"ATTENTION: Interface {iface} n'existe pas", file=sys.stderr)
             return False
-        
-        # Nettoyer l'interface
-        self.flush_addresses(iface)
-        
-        # Activer l'interface
+
+        # Activer l'interface d'abord
         if not self.bring_interface_up(iface):
             return False
-        
+
         # Configuration IPv4
         if 'ipv4' in config:
             if config['ipv4'] == 'dhcp':
-                self.enable_dhcp(iface)
+                # Pour DHCP, on vérifie d'abord si c'est déjà configuré
+                # avant de nettoyer
+                if not (self.has_dhcp_address(iface) and self.is_dhcp_running(iface)):
+                    print(f"Nettoyage de {iface} avant configuration DHCP")
+                    self.flush_addresses(iface)
+
+                success = self.enable_dhcp(iface)
+                if not success:
+                    print(f"Échec de la configuration DHCP sur {iface}", file=sys.stderr)
+                    return False
             else:
-                self.set_ipv4_address(iface, config['ipv4'])
-        
+                # Pour IP statique, on nettoie toujours
+                self.flush_addresses(iface)
+                success = self.set_ipv4_address(iface, config['ipv4'])
+                if not success:
+                    return False
+
         # Configuration IPv6
         if 'ipv6' in config:
             if config['ipv6'] == 'auto':
                 self.enable_ipv6_auto(iface)
             else:
-                self.set_ipv6_address(iface, config['ipv6'])
-        
+                success = self.set_ipv6_address(iface, config['ipv6'])
+                if not success:
+                    return False
+
         print(f"Interface {iface} configurée")
         return True
     
