@@ -47,6 +47,7 @@ echo "[3/7] Installation des fichiers core..."
 install -m 755 src/core/yarp "$BINDIR/yarp"
 install -m 755 src/core/yarp-apply.sh "$BINDIR/yarp-apply"
 install -m 644 src/core/yarp_config.py "$COREDIR/yarp_config.py"
+install -m 644 src/core/yarp_logger.py "$COREDIR/yarp_logger.py"
 
 # Copie des modules
 echo ""

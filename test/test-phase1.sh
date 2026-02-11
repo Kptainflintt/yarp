@@ -28,6 +28,7 @@ for file in \
     "src/core/yarp" \
     "src/core/yarp-apply.sh" \
     "src/core/yarp_config.py" \
+    "src/core/yarp_logger.py" \
     "src/modules/network.py" \
     "src/modules/routing.py" \
     "install/setup.sh"
@@ -59,6 +60,7 @@ echo ""
 echo "Test 3: Syntaxe Python"
 for file in \
     "src/core/yarp_config.py" \
+    "src/core/yarp_logger.py" \
     "src/modules/network.py" \
     "src/modules/routing.py"
 do
