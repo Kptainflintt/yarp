@@ -134,26 +134,32 @@ class RoutingManager:
 
 def main():
     from yarp_config import YARPConfig
-    
-    # Accepter le chemin du fichier config en argument
-    config_file = sys.argv[1] if len(sys.argv) > 1 else "/etc/yarp/config.yaml"
-    
-    config = YARPConfig(config_file)
-    if not config.load() or not config.validate():
-        sys.exit(1)
-    
-    manager = RoutingManager(config)
-    
+
+    # Gestion des arguments
     if len(sys.argv) < 2:
-        print("Usage: routing.py <command>")
+        print("Usage: routing.py <config_file> [command]")
+        print("   ou: routing.py <command>")
         print("Commands:")
         print("  apply      - Appliquer les routes")
         print("  show       - Afficher les routes IPv4")
         print("  show6      - Afficher les routes IPv6")
         sys.exit(1)
-    
-    command = sys.argv[1]
-    
+
+    # Cas 1: routing.py apply/show/show6 (utilise config par défaut)
+    if sys.argv[1] in ["apply", "show", "show6"]:
+        config_file = "/etc/yarp/config.yaml"
+        command = sys.argv[1]
+    # Cas 2: routing.py <config_file> [command]
+    else:
+        config_file = sys.argv[1]
+        command = sys.argv[2] if len(sys.argv) > 2 else "apply"
+
+    config = YARPConfig(config_file)
+    if not config.load() or not config.validate():
+        sys.exit(1)
+
+    manager = RoutingManager(config)
+
     if command == "apply":
         if manager.apply_all():
             sys.exit(0)

@@ -80,22 +80,24 @@ class NetworkManager:
     def enable_dhcp(self, iface):
         """Active DHCP sur une interface"""
         print(f"Activation DHCP sur {iface}")
-    
+
         # Arrêter les clients DHCP existants pour cette interface
         self._run_command(f"pkill -f 'dhcpcd.*{iface}'", check=False)
         self._run_command(f"pkill -f 'udhcpc.*{iface}'", check=False)
-    
+
         # Alpine Linux utilise udhcpc par défaut
-        # Démarrer udhcpc en arrière-plan
-        success, _, stderr = self._run_command(
-            f"udhcpc -i {iface} -f -S &",
+        # Démarrer udhcpc en arrière-plan (sans &)
+        success, stdout, stderr = self._run_command(
+            f"udhcpc -i {iface} -f -S",
             check=False
         )
-    
+
         if not success:
             print(f"Erreur DHCP sur {iface}: {stderr}", file=sys.stderr)
-    
-        return True 
+            return False
+
+        print(f"DHCP activé sur {iface}")
+        return True
     
     def enable_ipv6_auto(self, iface):
         """Active l'autoconfiguration IPv6"""
@@ -154,23 +156,36 @@ class NetworkManager:
 
 def main():
     from yarp_config import YARPConfig
-    
-    # Accepter le chemin du fichier config en argument
-    config_file = sys.argv[1] if len(sys.argv) > 1 else "/etc/yarp/config.yaml"
-    
+
+    # Gestion des arguments
+    if len(sys.argv) < 2:
+        print("Usage: network.py <config_file> [apply]")
+        print("   ou: network.py apply")
+        sys.exit(1)
+
+    # Cas 1: network.py apply (utilise config par défaut)
+    if sys.argv[1] == "apply":
+        config_file = "/etc/yarp/config.yaml"
+        mode = "apply"
+    # Cas 2: network.py <config_file> [apply]
+    else:
+        config_file = sys.argv[1]
+        mode = sys.argv[2] if len(sys.argv) > 2 else "apply"
+
     config = YARPConfig(config_file)
     if not config.load() or not config.validate():
         sys.exit(1)
-      
+
     manager = NetworkManager(config)
-    
-    if len(sys.argv) > 1 and sys.argv[1] == "apply":
+
+    if mode == "apply":
         if manager.apply_all():
             sys.exit(0)
         else:
             sys.exit(1)
     else:
-        print("Usage: network.py apply")
+        print(f"Mode inconnu: {mode}")
+        print("Usage: network.py <config_file> [apply]")
         sys.exit(1)
 
 if __name__ == "__main__":
