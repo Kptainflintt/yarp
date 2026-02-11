@@ -10,7 +10,7 @@
 
 Et pourquoi pas ?
 
-Travaillant dans un environnement éducatif, je remarque que dans certains cas, perdre du temps à configurer un routeur n'est aps l'objectif premier du TP ou de la manipulation demandée. 
+Travaillant dans un environnement éducatif, je remarque que dans certains cas, perdre du temps à configurer un routeur n'est pas l'objectif premier du TP ou de la manipulation demandée. 
 J'ai donc eu l'idée de ce projet, pour passer moins de temps à la configuration et plus aux manipulations importantes.
 
 Bien entendu, son utilisation ne dispense en aucun cas de savoir faire les manipulation à la main, comprendre ce que cela fait et pourquoi...
@@ -273,7 +273,7 @@ yarp/
 └── build/                 # Builder ISO (futur)
 ```
 
----
+<!---
 
 ## **Développement**
 
@@ -317,3 +317,5 @@ Ce projet est sous licence **Apache 2.0**. Voir le fichier [LICENSE](LICENSE) po
 - **Issues :** [GitHub Issues](https://github.com/your-org/yarp/issues)
 - **Documentation :** [Wiki du projet](https://github.com/your-org/yarp/wiki)
 - **Logs :** Consultez `/var/log/yarp/` pour le debugging
+-->
+
