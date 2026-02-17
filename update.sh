@@ -10,6 +10,22 @@ COREDIR="$PREFIX/core"
 MODULEDIR="$PREFIX/modules"
 YARP_VERSION=$(cat VERSION 2>/dev/null || echo "inconnue")
 
+# Copie un fichier seulement si source et destination sont différents
+# Gère le cas où le dépôt est cloné directement dans /opt/yarp
+safe_cp() {
+    local src="$1"
+    local dst="$2"
+    local src_real dst_real
+
+    # Résoudre les chemins réels (readlink -f disponible sur BusyBox)
+    src_real="$(readlink -f "$src" 2>/dev/null || echo "$src")"
+    dst_real="$(readlink -f "$dst" 2>/dev/null || echo "$dst")"
+
+    if [ "$src_real" != "$dst_real" ]; then
+        cp -f "$src" "$dst"
+    fi
+}
+
 # Vérification root
 if [ "$(id -u)" -ne 0 ]; then
     echo "Erreur: Ce script doit être exécuté en root"
@@ -30,12 +46,12 @@ echo "==================================="
 # Mise à jour des fichiers core
 echo ""
 echo "[1/4] Mise à jour des fichiers core..."
-cp -f src/core/yarp "$BINDIR/yarp"
-cp -f src/core/yarp-apply.sh "$BINDIR/yarp-apply"
-cp -f src/core/yarp-check.sh "$BINDIR/yarp-check"
-cp -f src/core/yarp_config.py "$COREDIR/yarp_config.py"
-cp -f src/core/yarp_logger.py "$COREDIR/yarp_logger.py"
-cp -f VERSION "$PREFIX/VERSION"
+safe_cp src/core/yarp "$BINDIR/yarp"
+safe_cp src/core/yarp-apply.sh "$BINDIR/yarp-apply"
+safe_cp src/core/yarp-check.sh "$BINDIR/yarp-check"
+safe_cp src/core/yarp_config.py "$COREDIR/yarp_config.py"
+safe_cp src/core/yarp_logger.py "$COREDIR/yarp_logger.py"
+safe_cp VERSION "$PREFIX/VERSION"
 
 # Permissions core
 chmod 755 "$BINDIR/yarp" "$BINDIR/yarp-apply" "$BINDIR/yarp-check"
@@ -44,13 +60,13 @@ chmod 644 "$COREDIR/yarp_config.py" "$COREDIR/yarp_logger.py"
 # Mise à jour des modules
 echo "[2/4] Mise à jour des modules..."
 for module in src/modules/*.py; do
-    cp -f "$module" "$MODULEDIR/$(basename "$module")"
+    safe_cp "$module" "$MODULEDIR/$(basename "$module")"
     chmod 644 "$MODULEDIR/$(basename "$module")"
 done
 
 # Mise à jour du service OpenRC
 echo "[3/4] Mise à jour du service OpenRC..."
-cp -f src/init/yarp /etc/init.d/yarp
+safe_cp src/init/yarp /etc/init.d/yarp
 chmod 755 /etc/init.d/yarp
 
 # Permissions globales
