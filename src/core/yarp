@@ -17,6 +17,7 @@ Commandes:
     validate        Valider la configuration
     show            Afficher la configuration
     status          Afficher l'état du système
+    check           Vérifier l'installation
     reload          Recharger la configuration
     version         Afficher la version
 
@@ -60,6 +61,10 @@ cmd_reload() {
     fi
 }
 
+cmd_check() {
+    "$YARP_DIR/bin/yarp-check"
+}
+
 cmd_version() {
     echo "YARP version $YARP_VERSION"
 }
@@ -82,6 +87,9 @@ case "$1" in
         ;;
     status)
         cmd_status
+        ;;
+    check)
+        cmd_check
         ;;
     reload)
         cmd_reload

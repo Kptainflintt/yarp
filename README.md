@@ -274,6 +274,7 @@ yarp reload                  # Recharger la configuration
 yarp validate                # Valider la syntaxe YAML
 yarp show                    # Afficher la configuration
 yarp status                  # État des interfaces et routes
+yarp check                   # Vérifier l'installation
 
 # Informations
 yarp version                 # Version de YARP
