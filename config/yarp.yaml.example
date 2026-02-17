@@ -3,6 +3,9 @@ system:
   hostname: test-router
   domain: lab.local       # Appliqué dans /etc/resolv.conf (domain + search) et /etc/hosts (FQDN)
   timezone: Europe/Paris  # Appliqué via /etc/localtime et /etc/timezone (nécessite tzdata)
+  dns_servers:            # Serveurs DNS écrits dans /etc/resolv.conf (nameserver)
+    - 1.1.1.1
+    - 8.8.8.8
 
 # Configuration des logs
 logging:
@@ -32,6 +35,7 @@ logging:
   modules:
     network: INFO      # Logs networking
     routing: INFO      # Logs routing
+    dns: INFO          # Logs DNS (resolv.conf)
     firewall: WARNING  # Logs firewall (moins verbeux par défaut)
 
 interfaces:

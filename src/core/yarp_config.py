@@ -56,6 +56,20 @@ class YARPConfig:
                     errors.append("system.timezone doit être une chaîne non vide")
                 elif not re.match(r'^[a-zA-Z]+(/[a-zA-Z0-9_\-]+)+$', timezone):
                     errors.append(f"system.timezone invalide: {timezone} (format attendu: ex. Europe/Paris, America/New_York)")
+            
+            # Validation dns_servers
+            if 'dns_servers' in self.config['system']:
+                dns_servers = self.config['system']['dns_servers']
+                if not isinstance(dns_servers, list):
+                    errors.append("system.dns_servers doit être une liste")
+                elif len(dns_servers) == 0:
+                    errors.append("system.dns_servers ne peut pas être vide")
+                else:
+                    for idx, server in enumerate(dns_servers):
+                        try:
+                            ipaddress.ip_address(str(server))
+                        except ValueError:
+                            errors.append(f"system.dns_servers[{idx}] invalide: {server} (adresse IP attendue)")
         
         # Validation interfaces
         if 'interfaces' in self.config:
@@ -143,6 +157,7 @@ class YARPConfig:
             'modules': {
                 'network': 'INFO',
                 'routing': 'INFO',
+                'dns': 'INFO',
                 'firewall': 'WARNING'
             }
         }

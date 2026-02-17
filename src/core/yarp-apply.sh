@@ -107,30 +107,7 @@ print(system.get('timezone', ''))
         fi
     fi
     
-    # Domain
-    if [ -n "$domain" ]; then
-        log "Configuration domain: $domain"
-        
-        # Mettre à jour /etc/resolv.conf : ajouter/remplacer la directive domain
-        if grep -q "^domain " /etc/resolv.conf 2>/dev/null; then
-            sed -i "s/^domain .*/domain ${domain}/" /etc/resolv.conf
-        else
-            # Insérer 'domain' en première ligne du fichier
-            sed -i "1i domain ${domain}" /etc/resolv.conf
-        fi
-        
-        # Ajouter/remplacer la directive search si absente
-        if ! grep -q "^search " /etc/resolv.conf 2>/dev/null; then
-            sed -i "/^domain /a search ${domain}" /etc/resolv.conf
-        else
-            # Vérifier que le domain est dans la liste search
-            if ! grep -q "^search.*${domain}" /etc/resolv.conf 2>/dev/null; then
-                sed -i "s/^search .*/& ${domain}/" /etc/resolv.conf
-            fi
-        fi
-        
-        log "Domain configuré dans /etc/resolv.conf"
-    fi
+    # Note: domain et search dans /etc/resolv.conf sont gérés par le module dns.py
     
     # Timezone
     if [ -n "$timezone" ]; then
@@ -182,6 +159,17 @@ configure_routing() {
     log "Configuration routage appliquée"
 }
 
+# Configuration DNS (/etc/resolv.conf)
+configure_dns() {
+    log "=== Configuration DNS ==="
+
+    if ! python3 "$YARP_DIR/modules/dns.py" "$CONFIG_FILE"; then
+        error "Erreur lors de la configuration DNS"
+    fi
+
+    log "Configuration DNS appliquée"
+}
+
 # Configuration NAT/firewall
 configure_nat() {
     log "=== Configuration NAT/Firewall ==="
@@ -220,6 +208,7 @@ main() {
     backup_alpine_config
     disable_alpine_networking
     configure_system
+    configure_dns
     configure_network
     configure_routing
     configure_nat

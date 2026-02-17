@@ -122,6 +122,9 @@ system:
   hostname: my-router
   domain: lan.local          # Appliqué dans /etc/resolv.conf et /etc/hosts (FQDN)
   timezone: Europe/Paris     # Appliqué via /etc/localtime et /etc/timezone
+  dns_servers:               # Serveurs DNS dans /etc/resolv.conf
+    - 1.1.1.1
+    - 8.8.8.8
 
 # Configuration des logs (voir section dédiée ci-dessous)
 logging:
@@ -137,6 +140,7 @@ logging:
   modules:
     network: INFO
     routing: INFO
+    dns: INFO
     firewall: WARNING
 
 # Interfaces réseau
@@ -199,6 +203,7 @@ logging:
   modules:
     network: INFO       # Logs du module réseau (interfaces, DHCP, adresses IP)
     routing: INFO       # Logs du module routage (routes statiques IPv4/IPv6)
+    dns: INFO           # Logs du module DNS (resolv.conf, nameservers)
     firewall: WARNING   # Logs du module NAT/firewall (masquerading, iptables)
 ```
 
@@ -296,6 +301,10 @@ python3 /opt/yarp/modules/routing.py show
 python3 /opt/yarp/modules/nat.py apply
 python3 /opt/yarp/modules/nat.py show
 python3 /opt/yarp/modules/nat.py clear
+
+# Module DNS
+python3 /opt/yarp/modules/dns.py apply
+python3 /opt/yarp/modules/dns.py show
 ```
 
 ### **Diagnostic et Logs**
@@ -314,6 +323,7 @@ tail -f /var/log/yarp/error.log
 cat /var/log/yarp/apply.log | jq 'select(.module == "network")'
 cat /var/log/yarp/apply.log | jq 'select(.module == "firewall")'
 cat /var/log/yarp/apply.log | jq 'select(.module == "routing")'
+cat /var/log/yarp/apply.log | jq 'select(.module == "dns")'
 
 # Filtrer par niveau
 cat /var/log/yarp/apply.log | jq 'select(.level == "ERROR")'
@@ -369,7 +379,8 @@ yarp/
 │   ├── modules/           # Modules fonctionnels
 │   │   ├── network.py     # Gestion interfaces
 │   │   ├── routing.py     # Routage statique
-│   │   └── nat.py         # NAT/Masquerading
+│   │   ├── nat.py         # NAT/Masquerading
+│   │   └── dns.py         # Résolution DNS
 │   └── init/              # Service OpenRC
 ├── config/                # Exemples de configuration
 ├── install/               # Scripts d'installation
