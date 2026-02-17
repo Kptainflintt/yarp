@@ -119,16 +119,24 @@ rc-service yarp start
 # Configuration système
 system:
   hostname: my-router
-  domain: lan.local
-  timezone: Europe/Paris
+  domain: lan.local          # Appliqué dans /etc/resolv.conf et /etc/hosts (FQDN)
+  timezone: Europe/Paris     # Appliqué via /etc/localtime et /etc/timezone
 
-# Configuration des logs
+# Configuration des logs (voir section dédiée ci-dessous)
 logging:
   level: INFO
   debug: false
+  files:
+    application: "/var/log/yarp/apply.log"
+    debug: "/var/log/yarp/debug.log"
+    error: "/var/log/yarp/error.log"
   formats:
     console: "simple"
     file: "json"
+  modules:
+    network: INFO
+    routing: INFO
+    firewall: WARNING
 
 # Interfaces réseau
 interfaces:
@@ -164,9 +172,95 @@ firewall:
   rules: []
 ```
 
+### **Système de Logs**
+
+YARP intègre un système de logging structuré avec catégorisation par module, permettant un contrôle fin de la verbosité et du format des logs.
+
+#### Niveau global et mode debug
+
+```yaml
+logging:
+  # Niveau global appliqué à tous les modules par défaut
+  # Valeurs possibles : DEBUG, INFO, WARNING, ERROR
+  level: INFO
+
+  # Mode debug : force le niveau DEBUG sur tous les modules
+  # et active le fichier de log debug
+  debug: false
+```
+
+#### Catégorisation par module
+
+Chaque module fonctionnel possède son propre logger avec un niveau configurable indépendamment. Cela permet par exemple de passer le firewall en WARNING tout en gardant le réseau en DEBUG :
+
+```yaml
+logging:
+  modules:
+    network: INFO       # Logs du module réseau (interfaces, DHCP, adresses IP)
+    routing: INFO       # Logs du module routage (routes statiques IPv4/IPv6)
+    firewall: WARNING   # Logs du module NAT/firewall (masquerading, iptables)
+```
+
+Les niveaux disponibles sont `DEBUG`, `INFO`, `WARNING`, `ERROR`. Un module configuré en `WARNING` ne produira que les avertissements et erreurs, ce qui est utile pour les modules stables.
+
+#### Fichiers de log
+
+Trois fichiers de log distincts avec rotation automatique (5 Mo max, 5 fichiers conservés) :
+
+```yaml
+logging:
+  files:
+    # Log principal : toutes les opérations (niveau INFO et supérieur)
+    application: "/var/log/yarp/apply.log"
+
+    # Log debug : toutes les opérations y compris DEBUG
+    # Actif uniquement si debug: true
+    debug: "/var/log/yarp/debug.log"
+
+    # Log erreurs : uniquement les erreurs (niveau ERROR)
+    error: "/var/log/yarp/error.log"
+```
+
+#### Formats de sortie
+
+```yaml
+logging:
+  formats:
+    # Format console (ce que voit l'utilisateur)
+    #   simple   -> [INFO] message
+    #   detailed -> [12:30:45] [network] [INFO] message
+    #   minimal  -> message (sans préfixe)
+    console: "simple"
+
+    # Format fichier (logs persistants)
+    #   json     -> {"timestamp": "...", "level": "INFO", "module": "network", ...}
+    #   detailed -> [2025-01-15 12:30:45] [network] [INFO] [apply:42] message
+    #   text     -> [2025-01-15 12:30:45] [INFO] message
+    file: "json"
+```
+
+Le format `json` est recommandé pour les fichiers : chaque ligne est un objet JSON contenant le timestamp, le niveau, le module source, la fonction, le numéro de ligne, le message et un éventuel contexte métadata (interface, commande exécutée, code retour, durée, etc.).
+
+Exemple de sortie JSON :
+```json
+{
+  "timestamp": "2025-01-15T12:30:45.123456",
+  "level": "INFO",
+  "module": "network",
+  "function": "apply",
+  "line": 42,
+  "message": "Configuration IPv4 réussie sur eth0",
+  "context": {
+    "operation": "set_ipv4",
+    "interface": "eth0",
+    "status": "success"
+  }
+}
+```
+
 ---
 
-## 📋 **Commandes Utiles**
+## **Commandes Utiles**
 
 ### **Commandes Principales**
 
@@ -208,11 +302,19 @@ python3 /opt/yarp/modules/nat.py clear
 # Logs en temps réel
 tail -f /var/log/yarp/apply.log
 
-# Logs debug (si activé)
+# Logs debug JSON (si debug: true dans la config)
 tail -f /var/log/yarp/debug.log | jq .
 
 # Logs erreurs uniquement
 tail -f /var/log/yarp/error.log
+
+# Filtrer les logs JSON par module (nécessite jq)
+cat /var/log/yarp/apply.log | jq 'select(.module == "network")'
+cat /var/log/yarp/apply.log | jq 'select(.module == "firewall")'
+cat /var/log/yarp/apply.log | jq 'select(.module == "routing")'
+
+# Filtrer par niveau
+cat /var/log/yarp/apply.log | jq 'select(.level == "ERROR")'
 
 # État iptables
 iptables -L -n -v
