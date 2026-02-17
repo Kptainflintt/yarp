@@ -3,11 +3,12 @@
 
 YARP_DIR="/opt/yarp"
 CONFIG_FILE="/etc/yarp/config.yaml"
+YARP_VERSION=$(cat "$YARP_DIR/VERSION" 2>/dev/null || echo "inconnue")
 
 show_help() {
     cat <<EOF
 YARP - YAML Alpine Router Project
-Version 0.1.0
+Version $YARP_VERSION
 
 Usage: yarp <command> [options]
 
@@ -60,7 +61,7 @@ cmd_reload() {
 }
 
 cmd_version() {
-    echo "YARP version 0.1.0"
+    echo "YARP version $YARP_VERSION"
 }
 
 # Main

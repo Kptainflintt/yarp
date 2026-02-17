@@ -4,7 +4,7 @@
 
 set -e
 
-YARP_VERSION="0.1.0"
+YARP_VERSION=$(cat VERSION 2>/dev/null || echo "inconnue")
 YARP_DIR="/opt/yarp"
 CONFIG_DIR="/etc/yarp"
 

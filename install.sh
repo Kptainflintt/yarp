@@ -7,6 +7,7 @@ BINDIR="$PREFIX/bin"
 COREDIR="$PREFIX/core"
 MODULEDIR="$PREFIX/modules"
 CONFIGDIR="/etc/yarp"
+YARP_VERSION=$(cat VERSION 2>/dev/null || echo "inconnue")
 
 # Vérification root
 if [ "$(id -u)" -ne 0 ]; then
@@ -15,7 +16,7 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 echo "==================================="
-echo "Installation de YARP v0.1.0"
+echo "Installation de YARP v${YARP_VERSION}"
 echo "==================================="
 
 # Installation des dépendances
@@ -48,6 +49,7 @@ install -m 755 src/core/yarp "$BINDIR/yarp"
 install -m 755 src/core/yarp-apply.sh "$BINDIR/yarp-apply"
 install -m 644 src/core/yarp_config.py "$COREDIR/yarp_config.py"
 install -m 644 src/core/yarp_logger.py "$COREDIR/yarp_logger.py"
+install -m 644 VERSION "$PREFIX/VERSION"
 
 # Copie des modules
 echo ""

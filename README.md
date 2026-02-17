@@ -1,5 +1,6 @@
 # YARP - YAML Alpine Router Project
 
+<!-- Mettre à jour le badge ci-dessous en même temps que le fichier VERSION -->
 ![Version](https://img.shields.io/badge/version-0.1.0-blue.svg)
 ![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)
 ![Platform](https://img.shields.io/badge/platform-Alpine%20Linux-orange.svg)
