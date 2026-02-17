@@ -104,6 +104,17 @@ rc-update add yarp default
 rc-service yarp start
 ```
 
+### **Mise à jour**
+
+Après un `git pull`, utilisez `update.sh` pour mettre à jour les fichiers installés sans réinstaller les dépendances ni toucher à votre configuration :
+
+```bash
+git pull
+./update.sh
+```
+
+> **Note :** `update.sh` ne modifie pas `/etc/yarp/config.yaml`. Consultez `config/yarp.yaml.example` pour les nouvelles options disponibles.
+
 **Note :** `install.sh` installe automatiquement toutes les dépendances nécessaires :
 - `python3` et `py3-yaml` pour l'exécution
 - `iproute2` pour la gestion réseau (`ip` command)
@@ -384,6 +395,9 @@ yarp/
 │   └── init/              # Service OpenRC
 ├── config/                # Exemples de configuration
 ├── install/               # Scripts d'installation
+├── install.sh             # Installation initiale
+├── update.sh              # Mise à jour après git pull
+├── uninstall.sh           # Désinstallation complète
 ├── tests/                 # Tests de validation
 └── build/                 # Builder ISO (futur)
 ```
