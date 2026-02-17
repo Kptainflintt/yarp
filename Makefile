@@ -7,7 +7,7 @@ uninstall:
     @sh uninstall.sh
 
 test:
-    @sh tests/test-phase1.sh
+	@sh test/test-phase1.sh
 
 clean:
     @echo "Nettoyage..."
