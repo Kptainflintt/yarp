@@ -145,48 +145,6 @@ EOF
     fi
 }
 
-# Service init.d
-install_service() {
-    log "Installation du service init..."
-    
-    cat > /etc/init.d/yarp <<'EOF'
-#!/sbin/openrc-run
-
-name="yarp"
-description="YARP Network Configuration Service"
-
-depend() {
-    need net
-    before firewall
-}
-
-start() {
-    ebegin "Applying YARP configuration"
-    /usr/local/bin/yarp-apply
-    eend $?
-}
-
-stop() {
-    ebegin "Stopping YARP"
-    # Pour l'instant, pas d'action au stop
-    eend 0
-}
-
-reload() {
-    ebegin "Reloading YARP configuration"
-    /usr/local/bin/yarp-apply
-    eend $?
-}
-EOF
-    
-    chmod +x /etc/init.d/yarp
-    
-    # Activer le service au démarrage
-    rc-update add yarp default 2>/dev/null || true
-    
-    log "Service installé et activé"
-}
-
 # Vérification post-installation
 verify_installation() {
     log "Vérification de l'installation..."
@@ -245,7 +203,6 @@ main() {
     create_directories
     install_yarp_files
     setup_config
-    install_service
     verify_installation
     show_summary
 }
