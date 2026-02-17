@@ -1,8 +1,8 @@
 # Configuration YARP - Exemple Simple
 system:
   hostname: test-router
-  domain: lab.local
-  timezone: Europe/Paris
+  domain: lab.local       # Appliqué dans /etc/resolv.conf (domain + search) et /etc/hosts (FQDN)
+  timezone: Europe/Paris  # Appliqué via /etc/localtime et /etc/timezone (nécessite tzdata)
 
 # Configuration des logs
 logging:

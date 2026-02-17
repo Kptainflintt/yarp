@@ -7,6 +7,7 @@ Parse et valide le fichier de configuration YAML
 import yaml
 import sys
 import os
+import re
 import ipaddress
 from pathlib import Path
 
@@ -39,6 +40,22 @@ class YARPConfig:
         if 'system' in self.config:
             if 'hostname' not in self.config['system']:
                 errors.append("system.hostname est requis")
+            
+            # Validation domain
+            if 'domain' in self.config['system']:
+                domain = self.config['system']['domain']
+                if not isinstance(domain, str) or not domain:
+                    errors.append("system.domain doit être une chaîne non vide")
+                elif not re.match(r'^[a-zA-Z0-9]([a-zA-Z0-9\-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]*[a-zA-Z0-9])?)*$', domain):
+                    errors.append(f"system.domain invalide: {domain} (format attendu: ex. lab.local, example.com)")
+            
+            # Validation timezone
+            if 'timezone' in self.config['system']:
+                timezone = self.config['system']['timezone']
+                if not isinstance(timezone, str) or not timezone:
+                    errors.append("system.timezone doit être une chaîne non vide")
+                elif not re.match(r'^[a-zA-Z]+(/[a-zA-Z0-9_\-]+)+$', timezone):
+                    errors.append(f"system.timezone invalide: {timezone} (format attendu: ex. Europe/Paris, America/New_York)")
         
         # Validation interfaces
         if 'interfaces' in self.config:

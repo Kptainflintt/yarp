@@ -77,21 +77,86 @@ EOF
 configure_system() {
     log "=== Configuration Système ==="
     
-    # Hostname
-    local hostname=$(python3 -c "
+    # Extraire hostname, domain et timezone depuis la config YAML
+    local system_values=$(python3 -c "
 import sys, yaml
 sys.path.insert(0, '$YARP_DIR/core')
 with open('$CONFIG_FILE') as f:
-    print(yaml.safe_load(f).get('system', {}).get('hostname', ''))
+    system = yaml.safe_load(f).get('system', {})
+print(system.get('hostname', ''))
+print(system.get('domain', ''))
+print(system.get('timezone', ''))
 ")
     
+    local hostname=$(echo "$system_values" | sed -n '1p')
+    local domain=$(echo "$system_values" | sed -n '2p')
+    local timezone=$(echo "$system_values" | sed -n '3p')
+    
+    # Hostname
     if [ -n "$hostname" ]; then
         log "Configuration hostname: $hostname"
         hostname "$hostname"
         echo "$hostname" > /etc/hostname
         
-        # Persister dans /etc/hosts
-        sed -i "/127.0.0.1.*localhost/c\127.0.0.1\tlocalhost $hostname" /etc/hosts
+        # Construire l'entrée /etc/hosts avec FQDN si domain est défini
+        if [ -n "$domain" ]; then
+            local fqdn="${hostname}.${domain}"
+            sed -i "/127.0.0.1.*localhost/c\127.0.0.1\tlocalhost ${fqdn} ${hostname}" /etc/hosts
+        else
+            sed -i "/127.0.0.1.*localhost/c\127.0.0.1\tlocalhost $hostname" /etc/hosts
+        fi
+    fi
+    
+    # Domain
+    if [ -n "$domain" ]; then
+        log "Configuration domain: $domain"
+        
+        # Mettre à jour /etc/resolv.conf : ajouter/remplacer la directive domain
+        if grep -q "^domain " /etc/resolv.conf 2>/dev/null; then
+            sed -i "s/^domain .*/domain ${domain}/" /etc/resolv.conf
+        else
+            # Insérer 'domain' en première ligne du fichier
+            sed -i "1i domain ${domain}" /etc/resolv.conf
+        fi
+        
+        # Ajouter/remplacer la directive search si absente
+        if ! grep -q "^search " /etc/resolv.conf 2>/dev/null; then
+            sed -i "/^domain /a search ${domain}" /etc/resolv.conf
+        else
+            # Vérifier que le domain est dans la liste search
+            if ! grep -q "^search.*${domain}" /etc/resolv.conf 2>/dev/null; then
+                sed -i "s/^search .*/& ${domain}/" /etc/resolv.conf
+            fi
+        fi
+        
+        log "Domain configuré dans /etc/resolv.conf"
+    fi
+    
+    # Timezone
+    if [ -n "$timezone" ]; then
+        log "Configuration timezone: $timezone"
+        
+        local zoneinfo="/usr/share/zoneinfo/${timezone}"
+        if [ -f "$zoneinfo" ]; then
+            # Installer le paquet tzdata si le fichier zoneinfo n'existe pas encore
+            ln -sf "$zoneinfo" /etc/localtime
+            echo "$timezone" > /etc/timezone
+            log "Timezone configuré: $timezone"
+        else
+            # Tenter d'installer tzdata si absent
+            if command -v apk > /dev/null 2>&1; then
+                log "Installation de tzdata pour $timezone..."
+                apk add --no-cache tzdata > /dev/null 2>&1 || true
+            fi
+            
+            if [ -f "$zoneinfo" ]; then
+                ln -sf "$zoneinfo" /etc/localtime
+                echo "$timezone" > /etc/timezone
+                log "Timezone configuré: $timezone"
+            else
+                log "ATTENTION: Timezone invalide ou tzdata non disponible: $timezone"
+            fi
+        fi
     fi
 }
 
