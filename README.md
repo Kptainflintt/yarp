@@ -185,16 +185,16 @@ firewall:
   stateful: true
   rules:
     - name: "Allow Internet"
-      from: eth1
-      to: eth0
+      source: 192.168.1.0/24
+      out_interface: eth0
       protocols:
         tcp: [80, 443]
         udp: 53
       action: accept
 
     - name: "Block WAN to LAN"
-      from: eth0
-      to: eth1
+      in_interface: eth0
+      out_interface: eth1
       protocols: any
       action: drop
 ```
@@ -315,10 +315,14 @@ Chaque règle contient :
 | Champ | Requis | Description |
 |---|---|---|
 | `name` | oui | Nom descriptif (utilisé comme tag iptables `YARP-FW-RULE-<name>`) |
-| `from` | oui | Interface source (ex: `eth0`, `eth1`) |
-| `to` | oui | Interface destination |
+| `source` | non | IP ou CIDR source (ex: `192.168.1.0/24`, `10.0.0.1`) |
+| `destination` | non | IP ou CIDR destination |
+| `in_interface` | non | Interface d'entrée (ex: `eth0`) |
+| `out_interface` | non | Interface de sortie (ex: `eth1`) |
 | `protocols` | non | Protocoles et ports à filtrer, ou `any` pour tout le trafic |
 | `action` | oui | `accept`, `drop` ou `reject` |
+
+> **Note :** Au moins un critère de matching (`source`, `destination`, `in_interface`, `out_interface`) est requis par règle.
 
 #### Formats de ports supportés
 
@@ -359,8 +363,8 @@ firewall:
   rules:
     # Autoriser HTTP/HTTPS et DNS du LAN vers le WAN
     - name: "Allow Internet"
-      from: eth1
-      to: eth0
+      source: 192.168.1.0/24
+      out_interface: eth0
       protocols:
         tcp: [80, 443]
         udp: 53
@@ -368,32 +372,32 @@ firewall:
 
     # Autoriser un serveur web accessible depuis le WAN
     - name: "Allow HTTP from WAN"
-      from: eth0
-      to: eth1
+      in_interface: eth0
+      destination: 192.168.1.100
       protocols:
         tcp: 80
       action: accept
 
     # Autoriser le ping sortant
     - name: "Allow Ping out"
-      from: eth1
-      to: eth0
+      in_interface: eth1
+      out_interface: eth0
       protocols:
         icmp: true
       action: accept
 
     # Autoriser un range de ports applicatif
     - name: "Allow app ports"
-      from: eth1
-      to: eth0
+      source: 192.168.1.0/24
+      out_interface: eth0
       protocols:
         tcp: "8000:8100"
       action: accept
 
     # Bloquer tout le reste du WAN vers le LAN
     - name: "Block WAN to LAN"
-      from: eth0
-      to: eth1
+      in_interface: eth0
+      out_interface: eth1
       protocols: any
       action: drop
 ```
@@ -413,8 +417,10 @@ Le pipeline firewall s'exécute dans cet ordre lors de `yarp apply` :
 
 La validation (`yarp validate`) vérifie :
 - Les politiques par défaut (`accept`, `drop`, `reject`)
-- Les champs obligatoires de chaque règle (`name`, `from`, `to`, `action`)
-- Que les interfaces `from`/`to` existent dans la section `interfaces`
+- Les champs obligatoires de chaque règle (`name`, `action`)
+- Qu'au moins un critère de matching est présent (`source`, `destination`, `in_interface`, `out_interface`)
+- Que les `in_interface`/`out_interface` existent dans la section `interfaces`
+- Que les `source`/`destination` sont des IP ou CIDR valides
 - Les protocoles supportés (`tcp`, `udp`, `icmp`)
 - La validité des ports (1-65535), listes et ranges
 

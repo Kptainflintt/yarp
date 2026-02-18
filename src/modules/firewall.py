@@ -217,19 +217,59 @@ class FirewallManager:
     #  Application d'une règle utilisateur                                 #
     # ------------------------------------------------------------------ #
 
+    def _build_match_args(self, rule):
+        """Construit les arguments iptables de matching (source, destination, interfaces).
+
+        Champs supportés :
+          - source         : IP, CIDR ou réseau source        → -s <value>
+          - destination    : IP, CIDR ou réseau destination   → -d <value>
+          - in_interface   : interface d'entrée               → -i <value>
+          - out_interface  : interface de sortie              → -o <value>
+
+        Tous les champs sont facultatifs. Au moins un doit être présent.
+        """
+        parts = []
+
+        if rule.get('in_interface'):
+            parts.append(f"-i {rule['in_interface']}")
+
+        if rule.get('out_interface'):
+            parts.append(f"-o {rule['out_interface']}")
+
+        if rule.get('source'):
+            parts.append(f"-s {rule['source']}")
+
+        if rule.get('destination'):
+            parts.append(f"-d {rule['destination']}")
+
+        return " ".join(parts)
+
+    def _describe_rule(self, rule):
+        """Génère une description lisible d'une règle pour les logs."""
+        parts = []
+        if rule.get('source'):
+            parts.append(f"src={rule['source']}")
+        if rule.get('in_interface'):
+            parts.append(f"in={rule['in_interface']}")
+        if rule.get('destination'):
+            parts.append(f"dst={rule['destination']}")
+        if rule.get('out_interface'):
+            parts.append(f"out={rule['out_interface']}")
+        return " ".join(parts) if parts else "any"
+
     def _apply_rule(self, rule):
         """Applique une règle firewall unique.
 
         Paramètres attendus dans le dict `rule` :
-          - name       : str  (obligatoire) — nom descriptif
-          - from       : str  (obligatoire) — interface source
-          - to         : str  (obligatoire) — interface destination
-          - protocols  : dict | "any" — { tcp: ..., udp: ..., icmp: true } ou "any"
-          - action     : str  (obligatoire) — accept / drop / reject
+          - name           : str  (obligatoire) — nom descriptif
+          - source         : str  (facultatif)  — IP/CIDR source
+          - destination    : str  (facultatif)  — IP/CIDR destination
+          - in_interface   : str  (facultatif)  — interface d'entrée
+          - out_interface  : str  (facultatif)  — interface de sortie
+          - protocols      : dict | "any"       — { tcp: ..., udp: ..., icmp: true } ou "any"
+          - action         : str  (obligatoire) — accept / drop / reject
         """
         name = rule.get('name', 'unnamed')
-        iface_in = rule.get('from', '')
-        iface_out = rule.get('to', '')
         protocols = rule.get('protocols', 'any')
         action = rule.get('action', 'accept').upper()
 
@@ -239,12 +279,13 @@ class FirewallManager:
             target = action  # ACCEPT ou DROP
 
         comment = f"YARP-FW-RULE-{name}"
-        base_args = f"-i {iface_in} -o {iface_out}" if iface_in and iface_out else ""
+        match_args = self._build_match_args(rule)
+        description = self._describe_rule(rule)
 
         # --- Cas "any" : tout le trafic, pas de filtre protocole ---
         if protocols == 'any':
             cmd = (
-                f"iptables -A FORWARD {base_args} "
+                f"iptables -A FORWARD {match_args} "
                 f"-m comment --comment '{comment}' "
                 f"-j {target}"
             )
@@ -252,7 +293,7 @@ class FirewallManager:
             if not success:
                 self.logger.error(f"Erreur règle '{name}': {stderr}")
                 return False
-            self.logger.info(f"Règle '{name}': {iface_in} → {iface_out} any → {action}")
+            self.logger.info(f"Règle '{name}': {description} any → {action}")
             return True
 
         # --- Cas dict de protocoles ---
@@ -269,7 +310,7 @@ class FirewallManager:
             # ICMP : pas de notion de port
             if proto == 'icmp':
                 cmd = (
-                    f"iptables -A FORWARD {base_args} -p icmp "
+                    f"iptables -A FORWARD {match_args} -p icmp "
                     f"-m comment --comment '{comment}' "
                     f"-j {target}"
                 )
@@ -278,7 +319,7 @@ class FirewallManager:
                     self.logger.error(f"Erreur règle '{name}' icmp: {stderr}")
                     return False
                 self.logger.info(
-                    f"Règle '{name}': {iface_in} → {iface_out} icmp → {action}"
+                    f"Règle '{name}': {description} icmp → {action}"
                 )
                 continue
 
@@ -297,7 +338,7 @@ class FirewallManager:
             port_args = self._build_port_args(ports)
 
             cmd = (
-                f"iptables -A FORWARD {base_args} -p {proto} "
+                f"iptables -A FORWARD {match_args} -p {proto} "
                 f"{port_args} "
                 f"-m comment --comment '{comment}' "
                 f"-j {target}"
@@ -309,7 +350,7 @@ class FirewallManager:
                 return False
 
             self.logger.info(
-                f"Règle '{name}': {iface_in} → {iface_out} "
+                f"Règle '{name}': {description} "
                 f"{proto}/{','.join(ports)} → {action}"
             )
 

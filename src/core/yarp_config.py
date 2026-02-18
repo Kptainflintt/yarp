@@ -152,22 +152,6 @@ class YARPConfig:
                         if 'name' not in rule:
                             errors.append(f"{prefix}: 'name' est requis")
 
-                        if 'from' not in rule:
-                            errors.append(f"{prefix}: 'from' est requis")
-                        elif rule['from'] not in interface_names:
-                            errors.append(
-                                f"{prefix}: interface 'from' inconnue: '{rule['from']}' "
-                                f"(interfaces disponibles: {', '.join(interface_names)})"
-                            )
-
-                        if 'to' not in rule:
-                            errors.append(f"{prefix}: 'to' est requis")
-                        elif rule['to'] not in interface_names:
-                            errors.append(
-                                f"{prefix}: interface 'to' inconnue: '{rule['to']}' "
-                                f"(interfaces disponibles: {', '.join(interface_names)})"
-                            )
-
                         if 'action' not in rule:
                             errors.append(f"{prefix}: 'action' est requis")
                         elif not isinstance(rule['action'], str) or rule['action'].lower() not in valid_actions:
@@ -175,6 +159,45 @@ class YARPConfig:
                                 f"{prefix}: action invalide: '{rule.get('action')}' "
                                 f"(valeurs acceptées: {', '.join(valid_actions)})"
                             )
+
+                        # Au moins un critère de matching requis
+                        has_match = any(
+                            k in rule for k in ('source', 'destination', 'in_interface', 'out_interface')
+                        )
+                        if not has_match:
+                            errors.append(
+                                f"{prefix}: au moins un critère de matching requis "
+                                f"(source, destination, in_interface, out_interface)"
+                            )
+
+                        # Validation des interfaces (facultatives)
+                        for iface_field in ('in_interface', 'out_interface'):
+                            if iface_field in rule:
+                                if not isinstance(rule[iface_field], str):
+                                    errors.append(f"{prefix}: '{iface_field}' doit être une chaîne")
+                                elif rule[iface_field] not in interface_names:
+                                    errors.append(
+                                        f"{prefix}: {iface_field} inconnue: '{rule[iface_field]}' "
+                                        f"(interfaces disponibles: {', '.join(interface_names)})"
+                                    )
+
+                        # Validation des adresses (facultatives)
+                        for addr_field in ('source', 'destination'):
+                            if addr_field in rule:
+                                addr = rule[addr_field]
+                                if not isinstance(addr, str):
+                                    errors.append(f"{prefix}: '{addr_field}' doit être une chaîne")
+                                else:
+                                    try:
+                                        ipaddress.ip_network(addr, strict=False)
+                                    except ValueError:
+                                        try:
+                                            ipaddress.ip_address(addr)
+                                        except ValueError:
+                                            errors.append(
+                                                f"{prefix}: {addr_field} invalide: '{addr}' "
+                                                f"(attendu: IP ou CIDR, ex: 192.168.1.0/24, 10.0.0.1)"
+                                            )
 
                         # Validation protocols
                         if 'protocols' in rule:

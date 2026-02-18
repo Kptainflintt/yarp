@@ -79,47 +79,53 @@ firewall:
   stateful: true
 
   # Règles de filtrage (évaluées dans l'ordre)
-  # from/to : noms d'interfaces réseau
+  #
+  # Critères de matching (au moins un requis) :
+  #   source         : IP ou CIDR source (ex: 192.168.1.0/24, 10.0.0.1)
+  #   destination    : IP ou CIDR destination
+  #   in_interface   : interface d'entrée (ex: eth0)
+  #   out_interface  : interface de sortie (ex: eth1)
+  #
   # protocols : dict {tcp: ..., udp: ..., icmp: true} ou "any"
   # Ports acceptés : int (80), liste ([80, 443]), range ("8000:8100")
   # action : accept, drop, reject
   rules:
     # Autoriser le trafic HTTP/HTTPS et DNS du LAN vers le WAN
     - name: "Allow Internet"
-      from: eth1
-      to: eth0
+      source: 192.168.1.0/24
+      out_interface: eth0
       protocols:
         tcp: [80, 443]
         udp: 53
       action: accept
 
-    # Autoriser le trafic HTTP depuis le WAN vers le LAN
+    # Autoriser le trafic HTTP depuis le WAN vers un serveur LAN
     - name: "Allow HTTP from WAN"
-      from: eth0
-      to: eth1
+      in_interface: eth0
+      destination: 192.168.1.100
       protocols:
         tcp: 80
       action: accept
 
     # Autoriser le ping (ICMP) du LAN vers le WAN
     - name: "Allow Ping out"
-      from: eth1
-      to: eth0
+      in_interface: eth1
+      out_interface: eth0
       protocols:
         icmp: true
       action: accept
 
     # Autoriser un range de ports pour une application
     - name: "Allow app ports"
-      from: eth1
-      to: eth0
+      source: 192.168.1.0/24
+      out_interface: eth0
       protocols:
         tcp: "8000:8100"
       action: accept
 
     # Bloquer tout le reste du WAN vers le LAN
     - name: "Block WAN to LAN"
-      from: eth0
-      to: eth1
+      in_interface: eth0
+      out_interface: eth1
       protocols: any
       action: drop
