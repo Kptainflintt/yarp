@@ -133,7 +133,7 @@ class NATManager:
         rules_cleaned = 0
 
         # Lister les règles POSTROUTING et supprimer celles avec YARP-NAT
-        success, stdout, _ = self._run_command_silent("iptables -t nat -L POSTROUTING --line-numbers | grep 'YARP-NAT'")
+        success, stdout, _ = self._run_command_silent("iptables -t nat -L POSTROUTING --line-numbers -n | grep 'YARP-NAT'")
         if success and stdout.strip():
             # Supprimer les règles en partant de la fin
             lines = stdout.strip().split('\n')
@@ -151,7 +151,7 @@ class NATManager:
                     rules_cleaned += 1
 
         # Supprimer toutes les règles YARP-FORWARD de la table filter
-        success, stdout, _ = self._run_command_silent("iptables -L FORWARD --line-numbers | grep 'YARP-FORWARD'")
+        success, stdout, _ = self._run_command_silent("iptables -L FORWARD --line-numbers -n | grep 'YARP-FORWARD'")
         if success and stdout.strip():
             lines = stdout.strip().split('\n')
             line_numbers = []
