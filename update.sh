@@ -45,7 +45,7 @@ echo "==================================="
 
 # Mise à jour des fichiers core
 echo ""
-echo "[1/4] Mise à jour des fichiers core..."
+echo "[1/5] Mise à jour des fichiers core..."
 safe_cp src/core/yarp "$BINDIR/yarp"
 safe_cp src/core/yarp-apply.sh "$BINDIR/yarp-apply"
 safe_cp src/core/yarp-check.sh "$BINDIR/yarp-check"
@@ -58,19 +58,24 @@ chmod 755 "$BINDIR/yarp" "$BINDIR/yarp-apply" "$BINDIR/yarp-check"
 chmod 644 "$COREDIR/yarp_config.py" "$COREDIR/yarp_logger.py"
 
 # Mise à jour des modules
-echo "[2/4] Mise à jour des modules..."
+echo "[2/5] Mise à jour des modules..."
 for module in src/modules/*.py; do
     safe_cp "$module" "$MODULEDIR/$(basename "$module")"
     chmod 644 "$MODULEDIR/$(basename "$module")"
 done
 
 # Mise à jour du service OpenRC
-echo "[3/4] Mise à jour du service OpenRC..."
+echo "[3/5] Mise à jour du service OpenRC..."
 safe_cp src/init/yarp /etc/init.d/yarp
 chmod 755 /etc/init.d/yarp
 
+# Mise à jour du MOTD
+echo "[4/5] Mise à jour du MOTD..."
+safe_cp src/init/yarp-motd.sh /etc/profile.d/yarp-motd.sh
+chmod 755 /etc/profile.d/yarp-motd.sh
+
 # Permissions globales
-echo "[4/4] Vérification des permissions..."
+echo "[5/5] Vérification des permissions..."
 chown -R root:root "$PREFIX"
 
 echo ""

@@ -606,7 +606,9 @@ yarp/
 │   │   ├── nat.py         # NAT/Masquerading
 │   │   ├── dns.py         # Résolution DNS
 │   │   └── firewall.py    # Règles de filtrage
-│   └── init/              # Service OpenRC
+│   └── init/              # Service et scripts système
+│       ├── yarp           # Service OpenRC
+│       └── yarp-motd.sh   # MOTD affiché à la connexion
 ├── config/                # Exemples de configuration
 ├── install/               # Scripts d'installation
 ├── install.sh             # Installation initiale

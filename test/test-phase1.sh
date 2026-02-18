@@ -34,6 +34,7 @@ for file in \
     "src/modules/nat.py" \
     "src/modules/dns.py" \
     "src/modules/firewall.py" \
+    "src/init/yarp-motd.sh" \
     "install/setup.sh"
 do
     if [ -f "$file" ]; then
@@ -83,7 +84,8 @@ echo "Test 4: Syntaxe Bash"
 for file in \
     "src/core/yarp" \
     "src/core/yarp-apply.sh" \
-    "install/setup.sh"
+    "install/setup.sh" \
+    "src/init/yarp-motd.sh"
 do
     if bash -n "$file" 2>/dev/null; then
         test_pass "Syntaxe Bash valide: $file"
