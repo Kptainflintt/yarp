@@ -123,6 +123,14 @@ firewall:
         tcp: "8000:8100"
       action: accept
 
+    # Autoriser les tunnels GRE (protocole L3, pas de ports)
+    - name: "Allow GRE tunnels"
+      in_interface: eth0
+      destination: 192.168.1.1
+      protocols:
+        gre: true
+      action: accept
+
     # Bloquer tout le reste du WAN vers le LAN
     - name: "Block WAN to LAN"
       in_interface: eth0

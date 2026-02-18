@@ -142,7 +142,11 @@ class YARPConfig:
                     errors.append("firewall.rules doit être une liste")
                 else:
                     valid_actions = ('accept', 'drop', 'reject')
-                    valid_protocols = ('tcp', 'udp', 'icmp')
+                    # Protocoles L4 (avec ports)
+                    l4_protocols = ('tcp', 'udp', 'sctp')
+                    # Protocoles L3 / sans port
+                    l3_protocols = ('icmp', 'gre', 'esp', 'ah', 'ipip', 'ospf', 'vrrp')
+                    valid_protocols = l4_protocols + l3_protocols
                     interface_names = list(self.config.get('interfaces', {}).keys())
 
                     for idx, rule in enumerate(fw['rules']):
@@ -187,6 +191,9 @@ class YARPConfig:
                                 addr = rule[addr_field]
                                 if not isinstance(addr, str):
                                     errors.append(f"{prefix}: '{addr_field}' doit être une chaîne")
+                                elif addr.lower() == 'any':
+                                    # "any" = tout le trafic, pas de filtre adresse
+                                    pass
                                 else:
                                     try:
                                         ipaddress.ip_network(addr, strict=False)
@@ -196,7 +203,7 @@ class YARPConfig:
                                         except ValueError:
                                             errors.append(
                                                 f"{prefix}: {addr_field} invalide: '{addr}' "
-                                                f"(attendu: IP ou CIDR, ex: 192.168.1.0/24, 10.0.0.1)"
+                                                f"(attendu: IP, CIDR ou 'any', ex: 192.168.1.0/24, 10.0.0.1, any)"
                                             )
 
                         # Validation protocols
@@ -217,8 +224,8 @@ class YARPConfig:
                                             f"(supportés: {', '.join(valid_protocols)})"
                                         )
 
-                                    # Validation des ports (sauf icmp)
-                                    if proto.lower() in ('tcp', 'udp'):
+                                    # Validation des ports (uniquement pour les protocoles L4)
+                                    if proto.lower() in l4_protocols:
                                         if isinstance(port_value, int):
                                             if port_value < 1 or port_value > 65535:
                                                 errors.append(
@@ -259,7 +266,7 @@ class YARPConfig:
                                                     errors.append(
                                                         f"{prefix}: port {proto}[{pidx}] type non supporté"
                                                     )
-                                        elif proto.lower() != 'icmp':
+                                        elif proto.lower() not in l3_protocols:
                                             errors.append(
                                                 f"{prefix}: valeur de ports {proto} invalide "
                                                 f"(attendu: int, str, ou liste)"

@@ -315,8 +315,8 @@ Chaque règle contient :
 | Champ | Requis | Description |
 |---|---|---|
 | `name` | oui | Nom descriptif (utilisé comme tag iptables `YARP-FW-RULE-<name>`) |
-| `source` | non | IP ou CIDR source (ex: `192.168.1.0/24`, `10.0.0.1`) |
-| `destination` | non | IP ou CIDR destination |
+| `source` | non | IP, CIDR source ou `any` (ex: `192.168.1.0/24`, `10.0.0.1`, `any`) |
+| `destination` | non | IP, CIDR destination ou `any` |
 | `in_interface` | non | Interface d'entrée (ex: `eth0`) |
 | `out_interface` | non | Interface de sortie (ex: `eth1`) |
 | `protocols` | non | Protocoles et ports à filtrer, ou `any` pour tout le trafic |
@@ -324,9 +324,11 @@ Chaque règle contient :
 
 > **Note :** Au moins un critère de matching (`source`, `destination`, `in_interface`, `out_interface`) est requis par règle.
 
-#### Formats de ports supportés
+#### Protocoles supportés
 
-Le champ `protocols` accepte un dictionnaire de protocoles (`tcp`, `udp`, `icmp`) ou la valeur `any` :
+Le champ `protocols` accepte un dictionnaire de protocoles ou la valeur `any` :
+
+**Protocoles L4 (avec ports)** : `tcp`, `udp`, `sctp`
 
 ```yaml
 # Port unique
@@ -345,9 +347,33 @@ protocols:
 protocols:
   tcp: [80, 443]
   udp: 53
+```
+
+**Protocoles L3 (sans ports)** : `icmp`, `gre`, `esp`, `ah`, `ipip`, `ospf`, `vrrp`
+
+```yaml
+# ICMP (ping)
+protocols:
   icmp: true
 
-# Tout le trafic (pas de filtrage par protocole)
+# Tunnel GRE
+protocols:
+  gre: true
+
+# IPsec (ESP + AH)
+protocols:
+  esp: true
+  ah: true
+
+# Combinaison L3 + L4
+protocols:
+  tcp: [80, 443]
+  icmp: true
+```
+
+**Tout le trafic** (pas de filtrage par protocole) :
+
+```yaml
 protocols: any
 ```
 
@@ -394,6 +420,14 @@ firewall:
         tcp: "8000:8100"
       action: accept
 
+    # Autoriser les tunnels GRE vers le routeur
+    - name: "Allow GRE tunnels"
+      in_interface: eth0
+      destination: 192.168.1.1
+      protocols:
+        gre: true
+      action: accept
+
     # Bloquer tout le reste du WAN vers le LAN
     - name: "Block WAN to LAN"
       in_interface: eth0
@@ -420,9 +454,9 @@ La validation (`yarp validate`) vérifie :
 - Les champs obligatoires de chaque règle (`name`, `action`)
 - Qu'au moins un critère de matching est présent (`source`, `destination`, `in_interface`, `out_interface`)
 - Que les `in_interface`/`out_interface` existent dans la section `interfaces`
-- Que les `source`/`destination` sont des IP ou CIDR valides
-- Les protocoles supportés (`tcp`, `udp`, `icmp`)
-- La validité des ports (1-65535), listes et ranges
+- Que les `source`/`destination` sont des IP, CIDR valides ou `any`
+- Les protocoles L4 supportés (`tcp`, `udp`, `sctp`) avec validation des ports (1-65535, listes, ranges)
+- Les protocoles L3 supportés (`icmp`, `gre`, `esp`, `ah`, `ipip`, `ospf`, `vrrp`)
 
 ---
 

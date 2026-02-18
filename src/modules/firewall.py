@@ -236,10 +236,10 @@ class FirewallManager:
         if rule.get('out_interface'):
             parts.append(f"-o {rule['out_interface']}")
 
-        if rule.get('source'):
+        if rule.get('source') and rule['source'].lower() != 'any':
             parts.append(f"-s {rule['source']}")
 
-        if rule.get('destination'):
+        if rule.get('destination') and rule['destination'].lower() != 'any':
             parts.append(f"-d {rule['destination']}")
 
         return " ".join(parts)
@@ -304,27 +304,31 @@ class FirewallManager:
             )
             return False
 
+        # Protocoles L3 (sans ports) vs L4 (avec ports)
+        l3_protocols = ('icmp', 'gre', 'esp', 'ah', 'ipip', 'ospf', 'vrrp')
+        l4_protocols = ('tcp', 'udp', 'sctp')
+
         for proto, port_value in protocols.items():
             proto = proto.lower()
 
-            # ICMP : pas de notion de port
-            if proto == 'icmp':
+            # Protocoles L3 : pas de notion de port
+            if proto in l3_protocols:
                 cmd = (
-                    f"iptables -A FORWARD {match_args} -p icmp "
+                    f"iptables -A FORWARD {match_args} -p {proto} "
                     f"-m comment --comment '{comment}' "
                     f"-j {target}"
                 )
                 success, _, stderr = self._run_command(cmd, check=False)
                 if not success:
-                    self.logger.error(f"Erreur règle '{name}' icmp: {stderr}")
+                    self.logger.error(f"Erreur règle '{name}' {proto}: {stderr}")
                     return False
                 self.logger.info(
-                    f"Règle '{name}': {description} icmp → {action}"
+                    f"Règle '{name}': {description} {proto} → {action}"
                 )
                 continue
 
-            # TCP / UDP avec ports
-            if proto not in ('tcp', 'udp'):
+            # Protocoles L4 : TCP / UDP / SCTP avec ports
+            if proto not in l4_protocols:
                 self.logger.warning(f"Règle '{name}': protocole '{proto}' non supporté, ignoré")
                 continue
 
