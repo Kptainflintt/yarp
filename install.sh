@@ -59,6 +59,7 @@ install -m 644 src/modules/network.py "$MODULEDIR/network.py"
 install -m 644 src/modules/routing.py "$MODULEDIR/routing.py"
 install -m 644 src/modules/nat.py "$MODULEDIR/nat.py"
 install -m 644 src/modules/dns.py "$MODULEDIR/dns.py"
+install -m 644 src/modules/firewall.py "$MODULEDIR/firewall.py"
 
 # Création des __init__.py pour Python
 touch "$COREDIR/__init__.py"

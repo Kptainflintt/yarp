@@ -56,6 +56,7 @@ for file in \
     /opt/yarp/modules/routing.py \
     /opt/yarp/modules/nat.py \
     /opt/yarp/modules/dns.py \
+    /opt/yarp/modules/firewall.py \
     /opt/yarp/VERSION
 do
     if [ -f "$file" ]; then

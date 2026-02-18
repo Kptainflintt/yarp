@@ -33,6 +33,7 @@ APK et son système d'init OpenRC offrent rapidité et simplicité.
 - **Configuration réseau déclarative** - Interfaces, DHCP, IPs statiques via YAML
 - **Routage statique avancé** - Routes IPv4/IPv6 avec métriques
 - **NAT/Masquerading intelligent** - Configuration par interface avec sources contrôlées
+- **Firewall déclaratif** - Règles iptables via YAML avec politiques par défaut, conntrack et filtrage par protocole/port
 - **Système de logs professionnel** - Logs JSON structurés + console utilisateur
 - **Validation robuste** - Vérification CIDR, cohérence de configuration
 - **CLI moderne** - Interface en ligne de commande avec sous-commandes
@@ -40,7 +41,6 @@ APK et son système d'init OpenRC offrent rapidité et simplicité.
 - **Tests intégrés** - Validation syntaxe et structure
 
 ### **En Développement**
-- **Module Firewall** - Règles iptables déclaratives (structure prête)
 - **Langage Runtime** - Commandes pour modifications à la volée
 - **Builder ISO** - Création d'ISO Alpine personnalisé avec YARP
 
@@ -159,7 +159,6 @@ interfaces:
   eth0:
     description: "Interface WAN"
     ipv4: dhcp
-    zone: WAN
     # NAT/Masquerading
     masquerading: true
     masquerade_sources:
@@ -169,7 +168,6 @@ interfaces:
     description: "Interface LAN"
     ipv4: 192.168.1.1/24
     ipv6: fd00:1::1/64
-    zone: LAN
 
 # Routage statique
 routing:
@@ -178,14 +176,27 @@ routing:
       via: 192.168.100.1
       interface: eth0
 
-# Firewall (structure prête)
+# Firewall
 firewall:
   default:
     input: drop
     forward: drop
     output: accept
   stateful: true
-  rules: []
+  rules:
+    - name: "Allow Internet"
+      from: eth1
+      to: eth0
+      protocols:
+        tcp: [80, 443]
+        udp: 53
+      action: accept
+
+    - name: "Block WAN to LAN"
+      from: eth0
+      to: eth1
+      protocols: any
+      action: drop
 ```
 
 ### **Système de Logs**
@@ -275,6 +286,138 @@ Exemple de sortie JSON :
 }
 ```
 
+### **Firewall**
+
+Le module firewall permet de définir des règles de filtrage iptables de manière déclarative. Les règles sont appliquées dans l'ordre du fichier YAML, après le NAT.
+
+#### Politiques par défaut et mode stateful
+
+```yaml
+firewall:
+  # Politiques par défaut pour chaque chaîne (accept, drop, reject)
+  default:
+    input: drop       # Trafic entrant vers le routeur
+    forward: drop     # Trafic traversant le routeur
+    output: accept    # Trafic sortant du routeur
+
+  # Active le suivi de connexion (conntrack)
+  # Accepte automatiquement les connexions ESTABLISHED/RELATED
+  # et le trafic loopback
+  stateful: true
+```
+
+Avec `stateful: true`, il n'est pas nécessaire de créer des règles pour le trafic retour. Seules les connexions initiales doivent être autorisées.
+
+#### Règles de filtrage
+
+Chaque règle contient :
+
+| Champ | Requis | Description |
+|---|---|---|
+| `name` | oui | Nom descriptif (utilisé comme tag iptables `YARP-FW-RULE-<name>`) |
+| `from` | oui | Interface source (ex: `eth0`, `eth1`) |
+| `to` | oui | Interface destination |
+| `protocols` | non | Protocoles et ports à filtrer, ou `any` pour tout le trafic |
+| `action` | oui | `accept`, `drop` ou `reject` |
+
+#### Formats de ports supportés
+
+Le champ `protocols` accepte un dictionnaire de protocoles (`tcp`, `udp`, `icmp`) ou la valeur `any` :
+
+```yaml
+# Port unique
+protocols:
+  tcp: 80
+
+# Liste de ports
+protocols:
+  tcp: [80, 443, 8080]
+
+# Range de ports
+protocols:
+  tcp: "8000:8100"
+
+# Plusieurs protocoles combinés
+protocols:
+  tcp: [80, 443]
+  udp: 53
+  icmp: true
+
+# Tout le trafic (pas de filtrage par protocole)
+protocols: any
+```
+
+#### Exemple complet
+
+```yaml
+firewall:
+  default:
+    input: drop
+    forward: drop
+    output: accept
+  stateful: true
+  rules:
+    # Autoriser HTTP/HTTPS et DNS du LAN vers le WAN
+    - name: "Allow Internet"
+      from: eth1
+      to: eth0
+      protocols:
+        tcp: [80, 443]
+        udp: 53
+      action: accept
+
+    # Autoriser un serveur web accessible depuis le WAN
+    - name: "Allow HTTP from WAN"
+      from: eth0
+      to: eth1
+      protocols:
+        tcp: 80
+      action: accept
+
+    # Autoriser le ping sortant
+    - name: "Allow Ping out"
+      from: eth1
+      to: eth0
+      protocols:
+        icmp: true
+      action: accept
+
+    # Autoriser un range de ports applicatif
+    - name: "Allow app ports"
+      from: eth1
+      to: eth0
+      protocols:
+        tcp: "8000:8100"
+      action: accept
+
+    # Bloquer tout le reste du WAN vers le LAN
+    - name: "Block WAN to LAN"
+      from: eth0
+      to: eth1
+      protocols: any
+      action: drop
+```
+
+#### Ordre d'application
+
+Le pipeline firewall s'exécute dans cet ordre lors de `yarp apply` :
+
+1. Nettoyage des règles `YARP-FW-*` existantes (idempotent)
+2. Application des politiques par défaut (`iptables -P`)
+3. Règles stateful (conntrack + loopback) si `stateful: true`
+4. Règles utilisateur dans l'ordre du YAML
+
+> **Note :** les règles sont évaluées dans l'ordre. Placez les règles les plus spécifiques en premier et les règles catch-all (`protocols: any`) en dernier.
+
+#### Validation
+
+La validation (`yarp validate`) vérifie :
+- Les politiques par défaut (`accept`, `drop`, `reject`)
+- Les champs obligatoires de chaque règle (`name`, `from`, `to`, `action`)
+- Que les interfaces `from`/`to` existent dans la section `interfaces`
+- Les protocoles supportés (`tcp`, `udp`, `icmp`)
+- La validité des ports (1-65535), listes et ranges
+
 ---
 
 ## **Commandes Utiles**
@@ -316,6 +459,11 @@ python3 /opt/yarp/modules/nat.py clear
 # Module DNS
 python3 /opt/yarp/modules/dns.py apply
 python3 /opt/yarp/modules/dns.py show
+
+# Module Firewall
+python3 /opt/yarp/modules/firewall.py apply
+python3 /opt/yarp/modules/firewall.py show
+python3 /opt/yarp/modules/firewall.py clear
 ```
 
 ### **Diagnostic et Logs**
@@ -391,7 +539,8 @@ yarp/
 │   │   ├── network.py     # Gestion interfaces
 │   │   ├── routing.py     # Routage statique
 │   │   ├── nat.py         # NAT/Masquerading
-│   │   └── dns.py         # Résolution DNS
+│   │   ├── dns.py         # Résolution DNS
+│   │   └── firewall.py    # Règles de filtrage
 │   └── init/              # Service OpenRC
 ├── config/                # Exemples de configuration
 ├── install/               # Scripts d'installation

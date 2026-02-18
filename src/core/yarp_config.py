@@ -114,7 +114,139 @@ class YARPConfig:
                     errors.append(f"Route {idx}: destination 'to' manquante")
                 if 'via' not in route and 'interface' not in route:
                     errors.append(f"Route {idx}: 'via' ou 'interface' requis")
-        
+
+        # Validation firewall
+        if 'firewall' in self.config:
+            fw = self.config['firewall']
+
+            # Validation des politiques par défaut
+            if 'default' in fw:
+                valid_policies = ('accept', 'drop', 'reject')
+                for chain in ('input', 'forward', 'output'):
+                    if chain in fw['default']:
+                        policy = fw['default'][chain]
+                        if not isinstance(policy, str) or policy.lower() not in valid_policies:
+                            errors.append(
+                                f"firewall.default.{chain} invalide: '{policy}' "
+                                f"(valeurs acceptées: {', '.join(valid_policies)})"
+                            )
+
+            # Validation stateful
+            if 'stateful' in fw:
+                if not isinstance(fw['stateful'], bool):
+                    errors.append("firewall.stateful doit être true/false")
+
+            # Validation des règles
+            if 'rules' in fw:
+                if not isinstance(fw['rules'], list):
+                    errors.append("firewall.rules doit être une liste")
+                else:
+                    valid_actions = ('accept', 'drop', 'reject')
+                    valid_protocols = ('tcp', 'udp', 'icmp')
+                    interface_names = list(self.config.get('interfaces', {}).keys())
+
+                    for idx, rule in enumerate(fw['rules']):
+                        prefix = f"firewall.rules[{idx}]"
+
+                        # Champs obligatoires
+                        if 'name' not in rule:
+                            errors.append(f"{prefix}: 'name' est requis")
+
+                        if 'from' not in rule:
+                            errors.append(f"{prefix}: 'from' est requis")
+                        elif rule['from'] not in interface_names:
+                            errors.append(
+                                f"{prefix}: interface 'from' inconnue: '{rule['from']}' "
+                                f"(interfaces disponibles: {', '.join(interface_names)})"
+                            )
+
+                        if 'to' not in rule:
+                            errors.append(f"{prefix}: 'to' est requis")
+                        elif rule['to'] not in interface_names:
+                            errors.append(
+                                f"{prefix}: interface 'to' inconnue: '{rule['to']}' "
+                                f"(interfaces disponibles: {', '.join(interface_names)})"
+                            )
+
+                        if 'action' not in rule:
+                            errors.append(f"{prefix}: 'action' est requis")
+                        elif not isinstance(rule['action'], str) or rule['action'].lower() not in valid_actions:
+                            errors.append(
+                                f"{prefix}: action invalide: '{rule.get('action')}' "
+                                f"(valeurs acceptées: {', '.join(valid_actions)})"
+                            )
+
+                        # Validation protocols
+                        if 'protocols' in rule:
+                            protocols = rule['protocols']
+
+                            if isinstance(protocols, str):
+                                if protocols.lower() != 'any':
+                                    errors.append(
+                                        f"{prefix}: protocols en tant que chaîne doit être 'any', "
+                                        f"reçu: '{protocols}'"
+                                    )
+                            elif isinstance(protocols, dict):
+                                for proto, port_value in protocols.items():
+                                    if proto.lower() not in valid_protocols:
+                                        errors.append(
+                                            f"{prefix}: protocole non supporté: '{proto}' "
+                                            f"(supportés: {', '.join(valid_protocols)})"
+                                        )
+
+                                    # Validation des ports (sauf icmp)
+                                    if proto.lower() in ('tcp', 'udp'):
+                                        if isinstance(port_value, int):
+                                            if port_value < 1 or port_value > 65535:
+                                                errors.append(
+                                                    f"{prefix}: port {proto} hors limites: {port_value}"
+                                                )
+                                        elif isinstance(port_value, str):
+                                            # Range "8000:8100"
+                                            if ':' in port_value:
+                                                parts = port_value.split(':')
+                                                if len(parts) != 2:
+                                                    errors.append(
+                                                        f"{prefix}: range de ports {proto} invalide: '{port_value}'"
+                                                    )
+                                                else:
+                                                    for p in parts:
+                                                        if not p.isdigit() or int(p) < 1 or int(p) > 65535:
+                                                            errors.append(
+                                                                f"{prefix}: port dans le range {proto} invalide: '{p}'"
+                                                            )
+                                            else:
+                                                if not port_value.isdigit() or int(port_value) < 1 or int(port_value) > 65535:
+                                                    errors.append(
+                                                        f"{prefix}: port {proto} invalide: '{port_value}'"
+                                                    )
+                                        elif isinstance(port_value, list):
+                                            for pidx, p in enumerate(port_value):
+                                                if isinstance(p, int):
+                                                    if p < 1 or p > 65535:
+                                                        errors.append(
+                                                            f"{prefix}: port {proto}[{pidx}] hors limites: {p}"
+                                                        )
+                                                elif isinstance(p, str):
+                                                    if not p.isdigit() or int(p) < 1 or int(p) > 65535:
+                                                        errors.append(
+                                                            f"{prefix}: port {proto}[{pidx}] invalide: '{p}'"
+                                                        )
+                                                else:
+                                                    errors.append(
+                                                        f"{prefix}: port {proto}[{pidx}] type non supporté"
+                                                    )
+                                        elif proto.lower() != 'icmp':
+                                            errors.append(
+                                                f"{prefix}: valeur de ports {proto} invalide "
+                                                f"(attendu: int, str, ou liste)"
+                                            )
+                            else:
+                                errors.append(
+                                    f"{prefix}: protocols doit être 'any' ou un dict, "
+                                    f"reçu: {type(protocols).__name__}"
+                                )
+
         if errors:
             print("Erreurs de validation:", file=sys.stderr)
             for error in errors:
@@ -139,6 +271,10 @@ class YARPConfig:
         """Retourne les routes statiques"""
         routing = self.get_routing()
         return routing.get('static', [])
+
+    def get_firewall(self):
+        """Retourne la configuration du firewall"""
+        return self.config.get('firewall', {})
 
     def get_logging(self):
         """Retourne la configuration de logging avec valeurs par défaut"""

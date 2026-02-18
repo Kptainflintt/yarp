@@ -181,6 +181,17 @@ configure_nat() {
     log "Configuration NAT appliquée"
 }
 
+# Configuration Firewall (règles de filtrage)
+configure_firewall() {
+    log "=== Configuration Firewall ==="
+
+    if ! python3 "$YARP_DIR/modules/firewall.py" "$CONFIG_FILE"; then
+        error "Erreur lors de la configuration Firewall"
+    fi
+
+    log "Configuration Firewall appliquée"
+}
+
 # Sauvegarder l'état actuel
 save_state() {
     log "Sauvegarde de l'état..."
@@ -212,6 +223,7 @@ main() {
     configure_network
     configure_routing
     configure_nat
+    configure_firewall
     save_state
 
     log "======================================"
