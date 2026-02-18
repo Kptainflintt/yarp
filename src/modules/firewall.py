@@ -262,14 +262,16 @@ class FirewallManager:
 
         Paramètres attendus dans le dict `rule` :
           - name           : str  (obligatoire) — nom descriptif
-          - source         : str  (facultatif)  — IP/CIDR source
-          - destination    : str  (facultatif)  — IP/CIDR destination
+          - chain          : str  (obligatoire) — input / forward / output
+          - source         : str  (facultatif)  — IP/CIDR source ou "any"
+          - destination    : str  (facultatif)  — IP/CIDR destination ou "any"
           - in_interface   : str  (facultatif)  — interface d'entrée
           - out_interface  : str  (facultatif)  — interface de sortie
           - protocols      : dict | "any"       — { tcp: ..., udp: ..., icmp: true } ou "any"
           - action         : str  (obligatoire) — accept / drop / reject
         """
         name = rule.get('name', 'unnamed')
+        chain = rule.get('chain', 'forward').upper()
         protocols = rule.get('protocols', 'any')
         action = rule.get('action', 'accept').upper()
 
@@ -285,7 +287,7 @@ class FirewallManager:
         # --- Cas "any" : tout le trafic, pas de filtre protocole ---
         if protocols == 'any':
             cmd = (
-                f"iptables -A FORWARD {match_args} "
+                f"iptables -A {chain} {match_args} "
                 f"-m comment --comment '{comment}' "
                 f"-j {target}"
             )
@@ -293,7 +295,7 @@ class FirewallManager:
             if not success:
                 self.logger.error(f"Erreur règle '{name}': {stderr}")
                 return False
-            self.logger.info(f"Règle '{name}': {description} any → {action}")
+            self.logger.info(f"Règle '{name}' [{chain}]: {description} any → {action}")
             return True
 
         # --- Cas dict de protocoles ---
@@ -314,7 +316,7 @@ class FirewallManager:
             # Protocoles L3 : pas de notion de port
             if proto in l3_protocols:
                 cmd = (
-                    f"iptables -A FORWARD {match_args} -p {proto} "
+                    f"iptables -A {chain} {match_args} -p {proto} "
                     f"-m comment --comment '{comment}' "
                     f"-j {target}"
                 )
@@ -323,7 +325,7 @@ class FirewallManager:
                     self.logger.error(f"Erreur règle '{name}' {proto}: {stderr}")
                     return False
                 self.logger.info(
-                    f"Règle '{name}': {description} {proto} → {action}"
+                    f"Règle '{name}' [{chain}]: {description} {proto} → {action}"
                 )
                 continue
 
@@ -342,7 +344,7 @@ class FirewallManager:
             port_args = self._build_port_args(ports)
 
             cmd = (
-                f"iptables -A FORWARD {match_args} -p {proto} "
+                f"iptables -A {chain} {match_args} -p {proto} "
                 f"{port_args} "
                 f"-m comment --comment '{comment}' "
                 f"-j {target}"
@@ -354,7 +356,7 @@ class FirewallManager:
                 return False
 
             self.logger.info(
-                f"Règle '{name}': {description} "
+                f"Règle '{name}' [{chain}]: {description} "
                 f"{proto}/{','.join(ports)} → {action}"
             )
 

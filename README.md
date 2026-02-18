@@ -185,6 +185,7 @@ firewall:
   stateful: true
   rules:
     - name: "Allow Internet"
+      chain: forward
       source: 192.168.1.0/24
       out_interface: eth0
       protocols:
@@ -193,6 +194,7 @@ firewall:
       action: accept
 
     - name: "Block WAN to LAN"
+      chain: forward
       in_interface: eth0
       out_interface: eth1
       protocols: any
@@ -315,12 +317,18 @@ Chaque règle contient :
 | Champ | Requis | Description |
 |---|---|---|
 | `name` | oui | Nom descriptif (utilisé comme tag iptables `YARP-FW-RULE-<name>`) |
+| `chain` | oui | Chaîne iptables : `input`, `forward` ou `output` |
 | `source` | non | IP, CIDR source ou `any` (ex: `192.168.1.0/24`, `10.0.0.1`, `any`) |
 | `destination` | non | IP, CIDR destination ou `any` |
-| `in_interface` | non | Interface d'entrée (ex: `eth0`) |
-| `out_interface` | non | Interface de sortie (ex: `eth1`) |
+| `in_interface` | non | Interface d'entrée (incompatible avec `chain: output`) |
+| `out_interface` | non | Interface de sortie (incompatible avec `chain: input`) |
 | `protocols` | non | Protocoles et ports à filtrer, ou `any` pour tout le trafic |
 | `action` | oui | `accept`, `drop` ou `reject` |
+
+Les chaînes correspondent à :
+- **`input`** — trafic destiné au routeur lui-même (ex: SSH, SNMP, ping vers le routeur)
+- **`forward`** — trafic traversant le routeur d'une interface à une autre
+- **`output`** — trafic émis par le routeur (ex: requêtes DNS du routeur)
 
 > **Note :** Au moins un critère de matching (`source`, `destination`, `in_interface`, `out_interface`) est requis par règle.
 
@@ -387,8 +395,18 @@ firewall:
     output: accept
   stateful: true
   rules:
-    # Autoriser HTTP/HTTPS et DNS du LAN vers le WAN
+    # Autoriser le SSH vers le routeur (INPUT)
+    - name: "Allow SSH"
+      chain: input
+      source: any
+      in_interface: eth1
+      protocols:
+        tcp: 22
+      action: accept
+
+    # Autoriser HTTP/HTTPS et DNS du LAN vers le WAN (FORWARD)
     - name: "Allow Internet"
+      chain: forward
       source: 192.168.1.0/24
       out_interface: eth0
       protocols:
@@ -398,6 +416,7 @@ firewall:
 
     # Autoriser un serveur web accessible depuis le WAN
     - name: "Allow HTTP from WAN"
+      chain: forward
       in_interface: eth0
       destination: 192.168.1.100
       protocols:
@@ -406,6 +425,7 @@ firewall:
 
     # Autoriser le ping sortant
     - name: "Allow Ping out"
+      chain: forward
       in_interface: eth1
       out_interface: eth0
       protocols:
@@ -414,14 +434,16 @@ firewall:
 
     # Autoriser un range de ports applicatif
     - name: "Allow app ports"
+      chain: forward
       source: 192.168.1.0/24
       out_interface: eth0
       protocols:
         tcp: "8000:8100"
       action: accept
 
-    # Autoriser les tunnels GRE vers le routeur
+    # Autoriser les tunnels GRE vers le routeur (INPUT)
     - name: "Allow GRE tunnels"
+      chain: input
       in_interface: eth0
       destination: 192.168.1.1
       protocols:
@@ -430,6 +452,7 @@ firewall:
 
     # Bloquer tout le reste du WAN vers le LAN
     - name: "Block WAN to LAN"
+      chain: forward
       in_interface: eth0
       out_interface: eth1
       protocols: any
@@ -451,7 +474,9 @@ Le pipeline firewall s'exécute dans cet ordre lors de `yarp apply` :
 
 La validation (`yarp validate`) vérifie :
 - Les politiques par défaut (`accept`, `drop`, `reject`)
-- Les champs obligatoires de chaque règle (`name`, `action`)
+- Les champs obligatoires de chaque règle (`name`, `chain`, `action`)
+- Que `chain` est valide (`input`, `forward`, `output`)
+- La cohérence chaîne/interface (`out_interface` incompatible avec `input`, `in_interface` incompatible avec `output`)
 - Qu'au moins un critère de matching est présent (`source`, `destination`, `in_interface`, `out_interface`)
 - Que les `in_interface`/`out_interface` existent dans la section `interfaces`
 - Que les `source`/`destination` sont des IP, CIDR valides ou `any`

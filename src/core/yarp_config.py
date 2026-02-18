@@ -164,6 +164,29 @@ class YARPConfig:
                                 f"(valeurs acceptées: {', '.join(valid_actions)})"
                             )
 
+                        # Validation de la chaîne (obligatoire)
+                        valid_chains = ('input', 'forward', 'output')
+                        if 'chain' not in rule:
+                            errors.append(f"{prefix}: 'chain' est requis (input, forward, output)")
+                        elif not isinstance(rule['chain'], str) or rule['chain'].lower() not in valid_chains:
+                            errors.append(
+                                f"{prefix}: chain invalide: '{rule.get('chain')}' "
+                                f"(valeurs acceptées: {', '.join(valid_chains)})"
+                            )
+                        else:
+                            chain = rule['chain'].lower()
+                            # Vérifier cohérence interface / chaîne
+                            if chain == 'input' and 'out_interface' in rule:
+                                errors.append(
+                                    f"{prefix}: 'out_interface' n'est pas compatible "
+                                    f"avec chain: input (le trafic INPUT n'a pas d'interface de sortie)"
+                                )
+                            if chain == 'output' and 'in_interface' in rule:
+                                errors.append(
+                                    f"{prefix}: 'in_interface' n'est pas compatible "
+                                    f"avec chain: output (le trafic OUTPUT n'a pas d'interface d'entrée)"
+                                )
+
                         # Au moins un critère de matching requis
                         has_match = any(
                             k in rule for k in ('source', 'destination', 'in_interface', 'out_interface')

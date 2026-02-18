@@ -80,18 +80,35 @@ firewall:
 
   # Règles de filtrage (évaluées dans l'ordre)
   #
-  # Critères de matching (au moins un requis) :
-  #   source         : IP ou CIDR source (ex: 192.168.1.0/24, 10.0.0.1)
-  #   destination    : IP ou CIDR destination
-  #   in_interface   : interface d'entrée (ex: eth0)
-  #   out_interface  : interface de sortie (ex: eth1)
+  # chain (obligatoire) : input, forward, output
+  #   input   = trafic destiné au routeur lui-même
+  #   forward = trafic traversant le routeur
+  #   output  = trafic émis par le routeur
   #
-  # protocols : dict {tcp: ..., udp: ..., icmp: true} ou "any"
+  # Critères de matching (au moins un requis) :
+  #   source         : IP, CIDR source ou "any" (ex: 192.168.1.0/24, 10.0.0.1, any)
+  #   destination    : IP, CIDR destination ou "any"
+  #   in_interface   : interface d'entrée (ex: eth0) — pas compatible avec chain: output
+  #   out_interface  : interface de sortie (ex: eth1) — pas compatible avec chain: input
+  #
+  # protocols : dict {tcp: ..., udp: ..., icmp: true, gre: true} ou "any"
+  #   L4 (avec ports) : tcp, udp, sctp
+  #   L3 (sans ports) : icmp, gre, esp, ah, ipip, ospf, vrrp
   # Ports acceptés : int (80), liste ([80, 443]), range ("8000:8100")
   # action : accept, drop, reject
   rules:
+    # Autoriser le SSH vers le routeur (INPUT, pas FORWARD)
+    - name: "Allow SSH"
+      chain: input
+      source: any
+      in_interface: eth1
+      protocols:
+        tcp: 22
+      action: accept
+
     # Autoriser le trafic HTTP/HTTPS et DNS du LAN vers le WAN
     - name: "Allow Internet"
+      chain: forward
       source: 192.168.1.0/24
       out_interface: eth0
       protocols:
@@ -101,6 +118,7 @@ firewall:
 
     # Autoriser le trafic HTTP depuis le WAN vers un serveur LAN
     - name: "Allow HTTP from WAN"
+      chain: forward
       in_interface: eth0
       destination: 192.168.1.100
       protocols:
@@ -109,6 +127,7 @@ firewall:
 
     # Autoriser le ping (ICMP) du LAN vers le WAN
     - name: "Allow Ping out"
+      chain: forward
       in_interface: eth1
       out_interface: eth0
       protocols:
@@ -117,6 +136,7 @@ firewall:
 
     # Autoriser un range de ports pour une application
     - name: "Allow app ports"
+      chain: forward
       source: 192.168.1.0/24
       out_interface: eth0
       protocols:
@@ -125,6 +145,7 @@ firewall:
 
     # Autoriser les tunnels GRE (protocole L3, pas de ports)
     - name: "Allow GRE tunnels"
+      chain: input
       in_interface: eth0
       destination: 192.168.1.1
       protocols:
@@ -133,6 +154,7 @@ firewall:
 
     # Bloquer tout le reste du WAN vers le LAN
     - name: "Block WAN to LAN"
+      chain: forward
       in_interface: eth0
       out_interface: eth1
       protocols: any
