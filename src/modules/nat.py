@@ -128,8 +128,6 @@ class NATManager:
         """Nettoie les règles NAT existantes de YARP"""
         self.logger.info("Nettoyage des règles NAT existantes")
 
-        # Supprimer toutes les règles YARP-NAT-* de la table nat
-        # Utiliser une approche plus robuste
         rules_cleaned = 0
 
         # Lister les règles POSTROUTING et supprimer celles avec YARP-NAT
@@ -150,27 +148,10 @@ class NATManager:
                 if success:
                     rules_cleaned += 1
 
-        # Supprimer toutes les règles YARP-FORWARD de la table filter
-        success, stdout, _ = self._run_command_silent("iptables -L FORWARD --line-numbers -n | grep 'YARP-FORWARD'")
-        if success and stdout.strip():
-            lines = stdout.strip().split('\n')
-            line_numbers = []
-            for line in lines:
-                if 'YARP-FORWARD' in line:
-                    line_num = line.split()[0]
-                    if line_num.isdigit():
-                        line_numbers.append(int(line_num))
-
-            # Supprimer en ordre décroissant
-            for line_num in sorted(line_numbers, reverse=True):
-                success, _, _ = self._run_command_silent(f"iptables -D FORWARD {line_num}")
-                if success:
-                    rules_cleaned += 1
-
         if rules_cleaned > 0:
-            self.logger.info(f"{rules_cleaned} règles YARP nettoyées")
+            self.logger.info(f"{rules_cleaned} règles YARP-NAT nettoyées")
         else:
-            self.logger.debug("Aucune règle YARP existante à nettoyer (normal au premier lancement)")
+            self.logger.debug("Aucune règle YARP-NAT existante à nettoyer (normal au premier lancement)")
 
     def setup_masquerade_rules(self, nat_interfaces):
         """Configure les règles de masquerading"""
@@ -192,41 +173,6 @@ class NATManager:
                     self.logger.info(f"Masquerading configuré: {source} -> {interface}")
                 else:
                     self.logger.error(f"Erreur masquerading {source} -> {interface}: {stderr}")
-                    return False
-
-        return True
-
-    def setup_forward_rules(self, nat_interfaces):
-        """Configure les règles de forwarding"""
-        self.logger.info("Configuration des règles de forwarding")
-
-        for interface, sources in nat_interfaces.items():
-            for source in sources:
-                # Règle FORWARD sortant (LAN -> WAN)
-                cmd_out = (f"iptables -A FORWARD "
-                          f"-s {source} -o {interface} "
-                          f"-m comment --comment 'YARP-FORWARD-OUT' "
-                          f"-j ACCEPT")
-
-                success_out, _, stderr_out = self._run_command(cmd_out, check=False)
-
-                # Règle FORWARD entrant (WAN -> LAN pour connexions établies)
-                cmd_in = (f"iptables -A FORWARD "
-                         f"-i {interface} -m state --state RELATED,ESTABLISHED "
-                         f"-m comment --comment 'YARP-FORWARD-IN' "
-                         f"-j ACCEPT")
-
-                success_in, _, stderr_in = self._run_command(cmd_in, check=False)
-
-                if success_out and success_in:
-                    self.logger.info(f"Forward configuré: {source} <-> {interface}")
-                else:
-                    error_msg = f"Erreur forward {source} <-> {interface}"
-                    if not success_out:
-                        error_msg += f" OUT: {stderr_out}"
-                    if not success_in:
-                        error_msg += f" IN: {stderr_in}"
-                    self.logger.error(error_msg)
                     return False
 
         return True
@@ -255,11 +201,6 @@ class NATManager:
             self.logger.error("Erreur lors de la configuration du masquerading")
             return False
 
-        # Configurer forwarding
-        if not self.setup_forward_rules(nat_interfaces):
-            self.logger.error("Erreur lors de la configuration du forwarding")
-            return False
-
         total_rules = sum(len(sources) for sources in nat_interfaces.values())
         self.logger.info(f"NAT configuré avec succès: {len(nat_interfaces)} interfaces, {total_rules} règles")
 
@@ -278,18 +219,6 @@ class NATManager:
         # Règles NAT
         print("\n--- Règles MASQUERADE ---")
         success, stdout, _ = self._run_command("iptables -t nat -L POSTROUTING -n", check=False)
-        if success:
-            lines = stdout.split('\n')
-            yarp_rules = [line for line in lines if 'YARP' in line]
-            if yarp_rules:
-                for rule in yarp_rules:
-                    print(f"  {rule}")
-            else:
-                print("  Aucune règle YARP")
-
-        # Règles FORWARD
-        print("\n--- Règles FORWARD ---")
-        success, stdout, _ = self._run_command("iptables -L FORWARD -n", check=False)
         if success:
             lines = stdout.split('\n')
             yarp_rules = [line for line in lines if 'YARP' in line]
