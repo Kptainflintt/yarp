@@ -180,38 +180,24 @@ class FirewallManager:
     # ------------------------------------------------------------------ #
 
     def clear_firewall_rules(self):
-        """Nettoie les règles firewall existantes taggées YARP-FW-*"""
-        self.logger.info("Nettoyage des règles firewall YARP existantes")
-        rules_cleaned = 0
+        """Flush complet des chaînes filter (INPUT, FORWARD, OUTPUT).
+
+        Un flush garantit un état propre à chaque apply, sans dépendre
+        des commentaires YARP-FW-* pour retrouver les règles. Les
+        politiques par défaut ne sont pas affectées par -F.
+        """
+        self.logger.info("Flush des chaînes iptables (filter)")
 
         for chain in ['INPUT', 'FORWARD', 'OUTPUT']:
-            success, stdout, _ = self._run_command_silent(
-                f"iptables -L {chain} --line-numbers -n | grep 'YARP-FW-'"
+            success, _, stderr = self._run_command(
+                f"iptables -F {chain}", check=False
             )
-            if success and stdout.strip():
-                lines = stdout.strip().split('\n')
-                line_numbers = []
-                for line in lines:
-                    if 'YARP-FW-' in line:
-                        parts = line.split()
-                        if parts and parts[0].isdigit():
-                            line_numbers.append(int(parts[0]))
+            if success:
+                self.logger.debug(f"Chaîne {chain} vidée")
+            else:
+                self.logger.error(f"Erreur flush {chain}: {stderr}")
 
-                # Supprimer en ordre décroissant pour éviter les décalages
-                for line_num in sorted(line_numbers, reverse=True):
-                    success, _, _ = self._run_command_silent(
-                        f"iptables -D {chain} {line_num}"
-                    )
-                    if success:
-                        rules_cleaned += 1
-
-        if rules_cleaned > 0:
-            self.logger.info(f"{rules_cleaned} règles YARP-FW nettoyées")
-        else:
-            self.logger.debug(
-                "Aucune règle YARP-FW existante à nettoyer "
-                "(normal au premier lancement)"
-            )
+        self.logger.info("Chaînes iptables vidées")
 
     # ------------------------------------------------------------------ #
     #  Application d'une règle utilisateur                                 #

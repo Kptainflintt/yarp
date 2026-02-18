@@ -463,7 +463,7 @@ firewall:
 
 Le pipeline firewall s'exécute dans cet ordre lors de `yarp apply` :
 
-1. Nettoyage des règles `YARP-FW-*` existantes (idempotent)
+1. Flush des chaînes iptables (`iptables -F INPUT/FORWARD/OUTPUT`)
 2. Application des politiques par défaut (`iptables -P`)
 3. Règles stateful (conntrack + loopback) si `stateful: true`
 4. Règles utilisateur dans l'ordre du YAML
