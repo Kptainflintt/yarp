@@ -43,18 +43,7 @@ disable_alpine_networking() {
     log "Désactivation de la gestion Alpine pour les interfaces YARP..."
     
     # Lire les interfaces depuis la config YAML
-    local interfaces=$(python3 -c "
-import sys
-import yaml
-sys.path.insert(0, '$YARP_DIR/core')
-
-with open('$CONFIG_FILE', 'r') as f:
-    config = yaml.safe_load(f)
-    
-if 'interfaces' in config:
-    for iface in config['interfaces'].keys():
-        print(iface)
-")
+    local interfaces=$(python3 "$YARP_DIR/core/yarp_config.py" get interface-names)
     
     # Créer un nouveau fichier interfaces sans les interfaces YARP
     cat > "$ALPINE_INTERFACES" << 'EOF'
@@ -78,19 +67,11 @@ configure_system() {
     log "=== Configuration Système ==="
     
     # Extraire hostname, domain et timezone depuis la config YAML
-    local system_values=$(python3 -c "
-import sys, yaml
-sys.path.insert(0, '$YARP_DIR/core')
-with open('$CONFIG_FILE') as f:
-    system = yaml.safe_load(f).get('system', {})
-print(system.get('hostname', ''))
-print(system.get('domain', ''))
-print(system.get('timezone', ''))
-")
+    eval "$(python3 "$YARP_DIR/core/yarp_config.py" get system-vars)"
     
-    local hostname=$(echo "$system_values" | sed -n '1p')
-    local domain=$(echo "$system_values" | sed -n '2p')
-    local timezone=$(echo "$system_values" | sed -n '3p')
+    local hostname="$HOSTNAME"
+    local domain="$DOMAIN"
+    local timezone="$TIMEZONE"
     
     # Hostname
     if [ -n "$hostname" ]; then
