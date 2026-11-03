@@ -10,6 +10,7 @@ import re
 import os
 import time
 import ipaddress
+import shlex
 from pathlib import Path
 
 YARP_DIR = "/opt/yarp"
@@ -17,6 +18,58 @@ sys.path.insert(0, os.path.join(YARP_DIR, 'core'))
 
 from yarp_config import YARPConfig
 from yarp_logger import get_logger
+
+def _validate_interface_name(name: str) -> bool:
+    """Valide qu'un nom d'interface réseau est valide.
+
+    Les noms d'interface doivent contenir uniquement des caractères alphanumériques,
+    des traits du soulignement, et des tirets. Ils ne doivent pas commencer par un chiffre.
+    """
+    if not name or not isinstance(name, str):
+        return False
+    # Pattern : doit contenir alphanumérique + _ - , ne pas commencer par un chiffre
+    pattern = r"^[a-zA-Z][a-zA-Z0-9_-]*$"
+    return bool(re.match(pattern, name))
+
+
+def _validate_ip_or_cidr(value: str) -> bool:
+    """Valide qu'une IP ou plage CIDR est valide.
+
+    Retourne True si c'est une IP unique ou un réseau CIDR valide.
+    """
+    if not value or not isinstance(value, str):
+        return False
+    try:
+        ipaddress.ip_network(value, strict=False)
+        return True
+    except ValueError:
+        return False
+
+
+def _run_command_list(args: list, logger, check: bool = True):
+    """Exécute une commande système avec une liste d'arguments (sécurisé)."""
+    start_time = time.time()
+    # Reconstituer la chaîne de commande pour le logging
+    cmd_str = " ".join(shlex.quote(arg) for arg in args)
+    try:
+        result = subprocess.run(
+            args, shell=False, capture_output=True, text=True, check=check
+        )
+        duration_ms = int((time.time() - start_time) * 1000)
+
+        # Logger l'exécution commande
+        logger.command_execution(cmd_str, result.returncode, duration_ms)
+
+        return result.returncode == 0, result.stdout, result.stderr
+    except subprocess.CalledProcessError as e:
+        duration_ms = int((time.time() - start_time) * 1000)
+        logger.command_execution(cmd_str, e.returncode, duration_ms)
+        return False, e.stdout, e.stderr
+    except Exception as e:
+        duration_ms = int((time.time() - start_time) * 1000)
+        logger.error(f"Erreur système lors de l'exécution: {e}")
+        return False, "", str(e)
+
 
 class NATManager:
     def __init__(self, config):
@@ -27,27 +80,16 @@ class NATManager:
         logging_config = config.get_logging()
         self.logger = get_logger("firewall", {'logging': logging_config})
 
-    def _run_command(self, cmd, check=True):
-        """Exécute une commande système avec logging"""
-        start_time = time.time()
+    def _run_command(self, args, check=True):
+        """Exécute une commande système avec logging (liste d'arguments sécurisée)."""
+        return _run_command_list(args, self.logger, check)
+
+    def _run_command_silent(self, args):
+        """Exécute une commande silencieuse (pour nettoyage, sans logging d'erreur)"""
         try:
-            result = subprocess.run(
-                cmd,
-                shell=True,
-                capture_output=True,
-                text=True,
-                check=check
-            )
-            duration_ms = int((time.time() - start_time) * 1000)
-
-            # Logger l'exécution commande
-            self.logger.command_execution(cmd, result.returncode, duration_ms)
-
-            return result.returncode == 0, result.stdout, result.stderr
-        except subprocess.CalledProcessError as e:
-            duration_ms = int((time.time() - start_time) * 1000)
-            self.logger.command_execution(cmd, e.returncode, duration_ms)
-            return False, e.stdout, e.stderr
+            return _run_command_list(args, self.logger, check=False)
+        except Exception:
+            return False, "", ""
 
     def validate_ip_range(self, cidr):
         """Valide qu'une plage IP est valide"""
@@ -88,13 +130,13 @@ class NATManager:
 
         # IPv4 forwarding
         success_v4, _, stderr_v4 = self._run_command(
-            "sysctl -w net.ipv4.ip_forward=1",
+            ["sysctl", "-w", "net.ipv4.ip_forward=1"],
             check=False
         )
 
         # IPv6 forwarding (optionnel)
         success_v6, _, stderr_v6 = self._run_command(
-            "sysctl -w net.ipv6.conf.all.forwarding=1",
+            ["sysctl", "-w", "net.ipv6.conf.all.forwarding=1"],
             check=False
         )
 
@@ -110,20 +152,6 @@ class NATManager:
 
         return success_v4
 
-    def _run_command_silent(self, cmd):
-        """Exécute une commande silencieuse (pour nettoyage, sans logging d'erreur)"""
-        try:
-            result = subprocess.run(
-                cmd,
-                shell=True,
-                capture_output=True,
-                text=True,
-                check=False
-            )
-            return result.returncode == 0, result.stdout, result.stderr
-        except Exception:
-            return False, "", ""
-
     def clear_nat_rules(self):
         """Nettoie les règles NAT existantes de YARP"""
         self.logger.info("Nettoyage des règles NAT existantes")
@@ -131,7 +159,10 @@ class NATManager:
         rules_cleaned = 0
 
         # Lister les règles POSTROUTING et supprimer celles avec YARP-NAT
-        success, stdout, _ = self._run_command_silent("iptables -t nat -L POSTROUTING --line-numbers -n | grep 'YARP-NAT'")
+        success, stdout, _ = self._run_command_silent([
+            "iptables", "-t", "nat", "-L", "POSTROUTING",
+            "--line-numbers", "-n"
+        ])
         if success and stdout.strip():
             # Supprimer les règles en partant de la fin
             lines = stdout.strip().split('\n')
@@ -144,7 +175,7 @@ class NATManager:
 
             # Supprimer en ordre décroissant pour éviter les décalages
             for line_num in sorted(line_numbers, reverse=True):
-                success, _, _ = self._run_command_silent(f"iptables -t nat -D POSTROUTING {line_num}")
+                success, _, _ = self._run_command_silent(["iptables", "-t", "nat", "-D", "POSTROUTING", str(line_num)])
                 if success:
                     rules_cleaned += 1
 
@@ -161,13 +192,25 @@ class NATManager:
             self.logger.info(f"Configuration masquerading sur {interface}")
 
             for source in sources:
-                # Règle MASQUERADE pour chaque source
-                cmd = (f"iptables -t nat -A POSTROUTING "
-                      f"-s {source} -o {interface} "
-                      f"-m comment --comment 'YARP-NAT-{interface}' "
-                      f"-j MASQUERADE")
+                # Validate source (IP or CIDR)
+                if not self.validate_ip_range(source):
+                    self.logger.warning(f"Source invalide ignorée pour {interface}: {source}")
+                    continue
 
-                success, _, stderr = self._run_command(cmd, check=False)
+                # Validate interface name
+                if not _validate_interface_name(interface):
+                    self.logger.warning(f"Interface invalide ignorée pour {interface}")
+                    continue
+
+                # Règle MASQUERADE pour chaque source (command list)
+                args = [
+                    "iptables", "-t", "nat", "-A", "POSTROUTING",
+                    "-s", source, "-o", interface,
+                    "-m", "comment", "--comment", f"YARP-NAT-{interface}",
+                    "-j", "MASQUERADE"
+                ]
+
+                success, _, stderr = self._run_command(args, check=False)
 
                 if success:
                     self.logger.info(f"Masquerading configuré: {source} -> {interface}")
@@ -211,14 +254,16 @@ class NATManager:
         print("\n=== État du NAT ===")
 
         # Forwarding status
-        success, stdout, _ = self._run_command("sysctl net.ipv4.ip_forward", check=False)
+        success, stdout, _ = self._run_command(["sysctl", "net.ipv4.ip_forward"], check=False)
         if success:
             forwarding = "ACTIVÉ" if "1" in stdout else "DÉSACTIVÉ"
             print(f"Forwarding IPv4: {forwarding}")
 
         # Règles NAT
         print("\n--- Règles MASQUERADE ---")
-        success, stdout, _ = self._run_command("iptables -t nat -L POSTROUTING -n", check=False)
+        success, stdout, _ = self._run_command([
+                    "iptables", "-t", "nat", "-L", "POSTROUTING", "-n"
+                ], check=False)
         if success:
             lines = stdout.split('\n')
             yarp_rules = [line for line in lines if 'YARP' in line]

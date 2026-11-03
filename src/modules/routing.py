@@ -19,13 +19,45 @@ class RoutingManager:
         self.config = config
         self.routing = config.get_routing()
         self.static_routes = config.get_static_routes()
+
+    def _validate_ip_network(self, to):
+        """Validate IP network (CIDR) format"""
+        try:
+            ipaddress.ip_network(to, strict=False)
+            return True
+        except (ipaddress.AddressValueError, ValueError):
+            return False
+
+    def _validate_ipv4_address(self, address):
+        """Validate IPv4 address for gateway"""
+        try:
+            ipaddress.IPv4Address(address)
+            return True
+        except (ipaddress.AddressValueError, ValueError):
+            return False
+
+    def _validate_ipv6_address(self, address):
+        """Validate IPv6 address for gateway"""
+        try:
+            ipaddress.IPv6Address(address)
+            return True
+        except (ipaddress.AddressValueError, ValueError):
+            return False
+
+    def _validate_interface_name(self, interface):
+        """Validate network interface name"""
+        if not interface or not isinstance(interface, str):
+            return False
+        # Check if interface exists on the system
+        success, _, _ = self._run_command(["ip", "link", "show", interface], check=False)
+        return success
     
-    def _run_command(self, cmd, check=True):
-        """Exécute une commande système"""
+    def _run_command(self, args, check=True):
+        """Exécute una commande système"""
         try:
             result = subprocess.run(
-                cmd,
-                shell=True,
+                args,
+                shell=False,
                 capture_output=True,
                 text=True,
                 check=check
@@ -37,95 +69,113 @@ class RoutingManager:
     def flush_routes(self, table="main"):
         """Supprime toutes les routes d'une table"""
         print(f"Nettoyage de la table de routage {table}")
-        # Conserver seulement les routes link-local
+        # Conser seulement les routes link-local
         self._run_command(
-            f"ip route flush table {table} proto static",
+            ["ip", "route", "flush", "table", table, "proto", "static"],
             check=False
         )
     
     def add_route(self, route):
-        """Ajoute une route statique"""
+        """Ajoute una route statique"""
         to = route.get('to')
         via = route.get('via')
         interface = route.get('interface')
         metric = route.get('metric')
-        
+
         if not to:
             print("Route sans destination ignorée", file=sys.stderr)
             return False
-        
-        # Déterminer si c'est IPv4 ou IPv6
+
+        # Déterminer si c's IPv4 ou IPv6
         try:
             network = ipaddress.ip_network(to, strict=False)
-            ip_cmd = "ip" if network.version == 4 else "ip -6"
+            if network.version == 4:
+                args = ["ip", "route", "add", to]
+            else:
+                args = ["ip", "-6", "route", "add", to]
         except ValueError:
             print(f"Destination invalide: {to}", file=sys.stderr)
             return False
-        
-        # Construire la commande
-        cmd = f"{ip_cmd} route add {to}"
-        
+
         if via:
-            cmd += f" via {via}"
-        
+            if network.version == 4:
+                if not self._validate_ipv4_address(via):
+                    print(f"Gateway IPv4 invalide: {via}", file=sys.stderr)
+                    return False
+            else:
+                if not self._validate_ipv6_address(via):
+                    print(f"Gateway IPv6 invalide: {via}", file=sys.stderr)
+                    return False
+            args.extend(["via", via])
+
         if interface:
-            cmd += f" dev {interface}"
-        
+            if not self._validate_interface_name(interface):
+                print(f"Interface invalida: {interface}", file=sys.stderr)
+                return False
+            args.extend(["dev", interface])
+
         if metric:
-            cmd += f" metric {metric}"
-        
+            try:
+                metric_int = int(metric)
+                args.extend(["metric", str(metric_int)])
+            except ValueError:
+                print(f"Metric must be an integer: {metric}", file=sys.stderr)
+                return False
+
         print(f"Ajout de route: {to} {'via ' + via if via else ''} {'dev ' + interface if interface else ''}")
-        
-        success, stdout, stderr = self._run_command(cmd, check=False)
-        
+
+        success, stdout, stderr = self._run_command(args, check=False)
+
         if not success and "File exists" not in stderr:
             print(f"Erreur lors de l'ajout de la route: {stderr}", file=sys.stderr)
             return False
-        
+
         return True
     
     def delete_route(self, route):
-        """Supprime une route statique"""
+        """Supprime una route statique"""
         to = route.get('to')
-        
+
         if not to:
             return False
-        
+
         try:
             network = ipaddress.ip_network(to, strict=False)
-            ip_cmd = "ip" if network.version == 4 else "ip -6"
+            if network.version == 4:
+                args = ["ip", "route", "del", to]
+            else:
+                args = ["ip", "-6", "route", "del", to]
         except ValueError:
             return False
-        
-        cmd = f"{ip_cmd} route del {to}"
-        return self._run_command(cmd, check=False)[0]
+
+        return self._run_command(args, check=False)[0]
     
     def show_routes(self, ipv6=False):
-        """Affiche les routes"""
-        cmd = "ip -6 route" if ipv6 else "ip route"
-        success, stdout, _ = self._run_command(cmd)
+        """Affiche las routes"""
+        args = ["ip", "-6", "route"] if ipv6 else ["ip", "route"]
+        success, stdout, _ = self._run_command(args)
         if success:
             print(stdout)
         return success
     
     def apply_static_routes(self):
-        """Applique toutes les routes statiques"""
+        """Applique toutes las routes statiques"""
         print("\n" + "="*50)
         print("Configuration des routes statiques")
         print("="*50)
-        
+
         if not self.static_routes:
-            print("Aucune route statique à configurer")
+            print("Aucune route statique à configurar")
             return True
-        
+
         success_count = 0
         total_count = len(self.static_routes)
-        
+
         for route in self.static_routes:
             if self.add_route(route):
                 success_count += 1
-        
-        print(f"\n{success_count}/{total_count} routes configurées")
+
+        print(f"\n{success_count}/{total_count} routes configuradas")
         return success_count == total_count
     
     def apply_all(self):

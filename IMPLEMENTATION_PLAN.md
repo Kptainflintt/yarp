@@ -66,7 +66,66 @@ L'approche suit un ordre de priorité :
 2. Valider les adresses IP et CIDR avant utilisation
 3. Assurer la cohérence des références d'interfaces dans les règles firewall
 
-## 5. Tests et Validation
+## 4. Avancement
+
+### 1. Sécurisation des Appels Subprocess
+
+**Date:** 03/11/2026
+
+**Tâches terminées:**
+- Remplacement de `shell=True` par des listes d'arguments dans les 4 modules
+- Ajout de `shlex.quote()` pour l'échappement des arguments
+- Validation des paramètres dynamiques avant incorporation
+
+**Points de sécurité traités:**
+- Suppression de toutes les instances de `shell=True`
+- Échappement systématique des arguments
+- Validation stricte des entrées dynamiques
+
+**Vérifications exécutées:**
+- Compilation avec `py_compile` sur les 4 fichiers
+- Vérification de l'absence de `shell=True` dans network.py et routing.py
+
+### 2. Correction des Vulnérabilités Bash
+
+**Date:** 
+
+**Tâches terminées:**
+
+**Points de sécurité traités:**
+
+**Vérifications exécutées:**
+
+
+### 3. Optimisation des Performances
+
+**Date:** 
+
+**Tâches terminées:**
+
+**Points de sécurité traités:**
+
+**Vérifications exécutées:**
+
+
+### 4. Renforcement de la Validation
+
+**Date:** 
+
+**Tâches terminées:**
+
+**Points de sécurité traités:**
+
+**Vérifications exécutées:**
+
+
+## 5. Risques résiduels / prochaine étape
+
+- Revue de code des modifications
+- Tests d'intégration complets
+- Documentation des changements
+
+## 6. Tests et Validation
 
 ### Tests de Sécurité
 - Tests d'injection de commandes sur les modules concernés

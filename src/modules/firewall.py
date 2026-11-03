@@ -9,12 +9,78 @@ import sys
 import os
 import time
 import ipaddress
+import shlex
+import re
 
 YARP_DIR = "/opt/yarp"
-sys.path.insert(0, os.path.join(YARP_DIR, 'core'))
+sys.path.insert(0, os.path.join(YARP_DIR, "core"))
 
 from yarp_config import YARPConfig
 from yarp_logger import get_logger
+
+
+def _validate_interface_name(name: str) -> bool:
+    """Valide qu'un nom d'interface réseau est valide.
+
+    Les noms d'interface doivent contenir uniquement des caractères alphanumériques,
+    des traits du soulignement, et des tirets. Ils ne doivent pas commencer par un chiffre.
+    """
+    if not name or not isinstance(name, str):
+        return False
+    # Pattern : doit contenir alphanumérique + _ - , ne pas commencer par un chiffre
+    pattern = r"^[a-zA-Z][a-zA-Z0-9_-]*$"
+    return bool(re.match(pattern, name))
+
+
+def _validate_ip_or_cidr(value: str) -> bool:
+    """Valide qu'une IP ou plage CIDR est valide.
+
+    Retourne True si c'est une IP unique ou un réseau CIDR valide.
+    """
+    if not value or not isinstance(value, str):
+        return False
+    try:
+        ipaddress.ip_network(value, strict=False)
+        return True
+    except ValueError:
+        return False
+
+
+def _validate_rule_name(name: str) -> bool:
+    """Valide qu'un nom de règle firewall est valide.
+
+    Les noms doivent contenir uniquement des caractères alphanumériques,
+    des traits du soulignement, des tirets, et des points.
+    """
+    if not name or not isinstance(name, str):
+        return False
+    pattern = r"^[a-zA-Z][a-zA-Z0-9._-]*$"
+    return bool(re.match(pattern, name))
+
+
+def _run_command_list(args: list, logger, check: bool = True):
+    """Exécute une commande système avec une liste d'arguments (sécurisé)."""
+    start_time = time.time()
+    # Reconstituer la chaîne de commande pour le logging
+    cmd_str = " ".join(shlex.quote(arg) for arg in args)
+    try:
+        result = subprocess.run(
+            args, shell=False, capture_output=True, text=True, check=check
+        )
+        duration_ms = int((time.time() - start_time) * 1000)
+
+        # Logger l'exécution commande
+        logger.command_execution(cmd_str, result.returncode, duration_ms)
+
+        return result.returncode == 0, result.stdout, result.stderr
+    except subprocess.CalledProcessError as e:
+        duration_ms = int((time.time() - start_time) * 1000)
+        logger.command_execution(cmd_str, e.returncode, duration_ms)
+        return False, e.stdout, e.stderr
+    except Exception as e:
+        duration_ms = int((time.time() - start_time) * 1000)
+        logger.error(f"Erreur système lors de l'exécution: {e}")
+        return False, "", str(e)
 
 
 class FirewallManager:
@@ -25,41 +91,16 @@ class FirewallManager:
 
         # Initialiser le logger avec la config YARP
         logging_config = config.get_logging()
-        self.logger = get_logger("firewall", {'logging': logging_config})
+        self.logger = get_logger("firewall", {"logging": logging_config})
 
-    def _run_command(self, cmd, check=True):
-        """Exécute une commande système avec logging"""
-        start_time = time.time()
-        try:
-            result = subprocess.run(
-                cmd,
-                shell=True,
-                capture_output=True,
-                text=True,
-                check=check
-            )
-            duration_ms = int((time.time() - start_time) * 1000)
+    def _run_command(self, args: list, check: bool = True):
+        """Exécute une commande système avec logging (liste d'arguments sécurisée)."""
+        return _run_command_list(args, self.logger, check)
 
-            # Logger l'exécution commande
-            self.logger.command_execution(cmd, result.returncode, duration_ms)
-
-            return result.returncode == 0, result.stdout, result.stderr
-        except subprocess.CalledProcessError as e:
-            duration_ms = int((time.time() - start_time) * 1000)
-            self.logger.command_execution(cmd, e.returncode, duration_ms)
-            return False, e.stdout, e.stderr
-
-    def _run_command_silent(self, cmd):
+    def _run_command_silent(self, args: list):
         """Exécute une commande silencieuse (pour nettoyage, sans logging d'erreur)"""
         try:
-            result = subprocess.run(
-                cmd,
-                shell=True,
-                capture_output=True,
-                text=True,
-                check=False
-            )
-            return result.returncode == 0, result.stdout, result.stderr
+            return _run_command_list(args, self.logger, check=False)
         except Exception:
             return False, "", ""
 
@@ -96,9 +137,9 @@ class FirewallManager:
         - range    → --dport 8000:8100
         """
         if len(ports) == 1:
-            return f"--dport {ports[0]}"
+            return ["--dport", ports[0]]
         else:
-            return f"-m multiport --dports {','.join(ports)}"
+            return ["-m", "multiport", "--dports", ",".join(ports)]
 
     # ------------------------------------------------------------------ #
     #  Politiques par défaut                                               #
@@ -106,34 +147,34 @@ class FirewallManager:
 
     def apply_default_policies(self):
         """Applique les politiques par défaut (INPUT, FORWARD, OUTPUT)"""
-        defaults = self.firewall.get('default', {})
+        defaults = self.firewall.get("default", {})
 
         policy_map = {
-            'accept': 'ACCEPT',
-            'drop': 'DROP',
-            'reject': 'REJECT',
+            "accept": "ACCEPT",
+            "drop": "DROP",
+            "reject": "REJECT",
         }
 
         chains = {
-            'input': 'INPUT',
-            'forward': 'FORWARD',
-            'output': 'OUTPUT',
+            "input": "INPUT",
+            "forward": "FORWARD",
+            "output": "OUTPUT",
         }
 
         for key, chain in chains.items():
-            policy = defaults.get(key, 'accept')
-            iptables_policy = policy_map.get(policy.lower(), 'ACCEPT')
+            policy = defaults.get(key, "accept")
+            iptables_policy = policy_map.get(policy.lower(), "ACCEPT")
 
             # REJECT n'est pas supporté comme policy par iptables, on utilise DROP
-            if iptables_policy == 'REJECT':
+            if iptables_policy == "REJECT":
                 self.logger.warning(
                     f"La policy REJECT n'est pas supportée par iptables pour {chain}, "
                     f"utilisation de DROP"
                 )
-                iptables_policy = 'DROP'
+                iptables_policy = "DROP"
 
             success, _, stderr = self._run_command(
-                f"iptables -P {chain} {iptables_policy}", check=False
+                ["iptables", "-P", chain, iptables_policy], check=False
             )
             if success:
                 self.logger.info(f"Policy {chain} → {iptables_policy}")
@@ -149,7 +190,7 @@ class FirewallManager:
 
     def apply_stateful_rules(self):
         """Ajoute les règles de suivi de connexion (conntrack) si stateful: true"""
-        if not self.firewall.get('stateful', False):
+        if not self.firewall.get("stateful", False):
             self.logger.info("Mode stateful désactivé")
             return True
 
@@ -157,17 +198,23 @@ class FirewallManager:
 
         stateful_cmds = [
             # Accepter les connexions déjà établies / liées sur INPUT et FORWARD
-            ("iptables -A INPUT -m state --state ESTABLISHED,RELATED "
-             "-m comment --comment 'YARP-FW-STATEFUL-INPUT' -j ACCEPT"),
-            ("iptables -A FORWARD -m state --state ESTABLISHED,RELATED "
-             "-m comment --comment 'YARP-FW-STATEFUL-FORWARD' -j ACCEPT"),
+            (
+                "iptables -A INPUT -m state --state ESTABLISHED,RELATED "
+                "-m comment --comment 'YARP-FW-STATEFUL-INPUT' -j ACCEPT"
+            ),
+            (
+                "iptables -A FORWARD -m state --state ESTABLISHED,RELATED "
+                "-m comment --comment 'YARP-FW-STATEFUL-FORWARD' -j ACCEPT"
+            ),
             # Accepter le loopback
-            ("iptables -A INPUT -i lo "
-             "-m comment --comment 'YARP-FW-LOOPBACK' -j ACCEPT"),
+            (
+                "iptables -A INPUT -i lo "
+                "-m comment --comment 'YARP-FW-LOOPBACK' -j ACCEPT"
+            ),
         ]
 
         for cmd in stateful_cmds:
-            success, _, stderr = self._run_command(cmd, check=False)
+            success, _, stderr = self._run_command(shlex.split(cmd), check=False)
             if not success:
                 self.logger.error(f"Erreur règle stateful: {stderr}")
                 return False
@@ -188,9 +235,9 @@ class FirewallManager:
         """
         self.logger.info("Flush des chaînes iptables (filter)")
 
-        for chain in ['INPUT', 'FORWARD', 'OUTPUT']:
+        for chain in ["INPUT", "FORWARD", "OUTPUT"]:
             success, _, stderr = self._run_command(
-                f"iptables -F {chain}", check=False
+                ["iptables", "-F", chain], check=False
             )
             if success:
                 self.logger.debug(f"Chaîne {chain} vidée")
@@ -213,33 +260,51 @@ class FirewallManager:
           - out_interface  : interface de sortie              → -o <value>
 
         Tous les champs sont facultatifs. Au moins un doit être présent.
+
+        Retourne une liste d'arguments.
         """
         parts = []
 
-        if rule.get('in_interface'):
-            parts.append(f"-i {rule['in_interface']}")
+        if rule.get("in_interface"):
+            iface = rule["in_interface"]
+            if not _validate_interface_name(iface):
+                self.logger.warning(f"Interface invalide ignorée: {iface}")
+                return None
+            parts.extend(["-i", iface])
 
-        if rule.get('out_interface'):
-            parts.append(f"-o {rule['out_interface']}")
+        if rule.get("out_interface"):
+            iface = rule["out_interface"]
+            if not _validate_interface_name(iface):
+                self.logger.warning(f"Interface invalide ignorée: {iface}")
+                return None
+            parts.extend(["-o", iface])
 
-        if rule.get('source') and rule['source'].lower() != 'any':
-            parts.append(f"-s {rule['source']}")
+        if rule.get("source") and rule["source"].lower() != "any":
+            src = rule["source"]
+            if not _validate_ip_or_cidr(src):
+                self.logger.warning(f"Source IP invalide ignorée: {src}")
+                return None
+            parts.extend(["-s", src])
 
-        if rule.get('destination') and rule['destination'].lower() != 'any':
-            parts.append(f"-d {rule['destination']}")
+        if rule.get("destination") and rule["destination"].lower() != "any":
+            dst = rule["destination"]
+            if not _validate_ip_or_cidr(dst):
+                self.logger.warning(f"Destination IP invalide ignorée: {dst}")
+                return None
+            parts.extend(["-d", dst])
 
-        return " ".join(parts)
+        return parts
 
     def _describe_rule(self, rule):
         """Génère une description lisible d'une règle pour les logs."""
         parts = []
-        if rule.get('source'):
+        if rule.get("source"):
             parts.append(f"src={rule['source']}")
-        if rule.get('in_interface'):
+        if rule.get("in_interface"):
             parts.append(f"in={rule['in_interface']}")
-        if rule.get('destination'):
+        if rule.get("destination"):
             parts.append(f"dst={rule['destination']}")
-        if rule.get('out_interface'):
+        if rule.get("out_interface"):
             parts.append(f"out={rule['out_interface']}")
         return " ".join(parts) if parts else "any"
 
@@ -256,28 +321,54 @@ class FirewallManager:
           - protocols      : dict | "any"       — { tcp: ..., udp: ..., icmp: true } ou "any"
           - action         : str  (obligatoire) — accept / drop / reject
         """
-        name = rule.get('name', 'unnamed')
-        chain = rule.get('chain', 'forward').upper()
-        protocols = rule.get('protocols', 'any')
-        action = rule.get('action', 'accept').upper()
+        name = rule.get("name", "unnamed")
+        chain = rule.get("chain", "forward").upper()
+        
+        # Validation stricte de la chaîne
+        valid_chains = {"INPUT", "FORWARD", "OUTPUT"}
+        if chain not in valid_chains:
+            self.logger.error(f"Chaîne de règle invalide : {chain}. Doit être INPUT, FORWARD ou OUTPUT.")
+            return False
+        
+        protocols = rule.get("protocols", "any")
+        action = rule.get("action", "accept").upper()
+        
+        # Validation stricte de l'action
+        valid_actions = {"ACCEPT", "DROP", "REJECT"}
+        if action not in valid_actions:
+            self.logger.error(f"Action de règle invalide : {action}. Doit être accept, drop ou reject (insensible à la casse).")
+            return False
 
-        if action == 'REJECT':
-            target = 'REJECT --reject-with icmp-port-unreachable'
+        if action == "REJECT":
+            target = "REJECT"
+            target_args = ["--reject-with", "icmp-port-unreachable"]
         else:
             target = action  # ACCEPT ou DROP
+            target_args = []
+
+        # Validation du nom de la règle
+        if not _validate_rule_name(name):
+            self.logger.error(f"Nom de règle invalide : {name}")
+            return False
 
         comment = f"YARP-FW-RULE-{name}"
-        match_args = self._build_match_args(rule)
+        match_args_list = self._build_match_args(rule)
         description = self._describe_rule(rule)
 
         # --- Cas "any" : tout le trafic, pas de filtre protocole ---
-        if protocols == 'any':
-            cmd = (
-                f"iptables -A {chain} {match_args} "
-                f"-m comment --comment '{comment}' "
-                f"-j {target}"
-            )
-            success, _, stderr = self._run_command(cmd, check=False)
+        if protocols == "any":
+            # Construire la liste d'arguments iptables
+            match_args = match_args_list or []
+            args = [
+                "iptables", "-A", chain,
+                *match_args,
+                "-m", "comment", "--comment=" + comment,
+                "-j", target
+            ]
+            # Ajouter les arguments supplémentaires pour REJECT
+            if action == "REJECT":
+                args.extend(target_args)
+            success, _, stderr = self._run_command(args, check=False)
             if not success:
                 self.logger.error(f"Erreur règle '{name}': {stderr}")
                 return False
@@ -293,20 +384,26 @@ class FirewallManager:
             return False
 
         # Protocoles L3 (sans ports) vs L4 (avec ports)
-        l3_protocols = ('icmp', 'gre', 'esp', 'ah', 'ipip', 'ospf', 'vrrp')
-        l4_protocols = ('tcp', 'udp', 'sctp')
+        l3_protocols = ("icmp", "gre", "esp", "ah", "ipip", "ospf", "vrrp")
+        l4_protocols = ("tcp", "udp", "sctp")
 
         for proto, port_value in protocols.items():
             proto = proto.lower()
 
             # Protocoles L3 : pas de notion de port
             if proto in l3_protocols:
-                cmd = (
-                    f"iptables -A {chain} {match_args} -p {proto} "
-                    f"-m comment --comment '{comment}' "
-                    f"-j {target}"
-                )
-                success, _, stderr = self._run_command(cmd, check=False)
+                match_args = match_args_list or []
+                args = [
+                    "iptables", "-A", chain,
+                    *match_args,
+                    "-p", proto,
+                    "-m", "comment", "--comment=" + comment,
+                    "-j", target
+                ]
+                # Ajouter les arguments supplémentaires pour REJECT
+                if action == "REJECT":
+                    args.extend(target_args)
+                success, _, stderr = self._run_command(args, check=False)
                 if not success:
                     self.logger.error(f"Erreur règle '{name}' {proto}: {stderr}")
                     return False
@@ -317,7 +414,9 @@ class FirewallManager:
 
             # Protocoles L4 : TCP / UDP / SCTP avec ports
             if proto not in l4_protocols:
-                self.logger.warning(f"Règle '{name}': protocole '{proto}' non supporté, ignoré")
+                self.logger.warning(
+                    f"Règle '{name}': protocole '{proto}' non supporté, ignoré"
+                )
                 continue
 
             ports = self._normalize_ports(port_value)
@@ -329,14 +428,21 @@ class FirewallManager:
 
             port_args = self._build_port_args(ports)
 
-            cmd = (
-                f"iptables -A {chain} {match_args} -p {proto} "
-                f"{port_args} "
-                f"-m comment --comment '{comment}' "
-                f"-j {target}"
-            )
+            # Construire la liste d'arguments iptables
+            match_args = match_args_list or []
+            args = [
+                "iptables", "-A", chain,
+                *match_args,
+                "-p", proto,
+                *port_args,
+                "-m", "comment", "--comment=" + comment,
+                "-j", target
+            ]
+            # Ajouter les arguments supplémentaires pour REJECT
+            if action == "REJECT":
+                args.extend(target_args)
 
-            success, _, stderr = self._run_command(cmd, check=False)
+            success, _, stderr = self._run_command(args, check=False)
             if not success:
                 self.logger.error(f"Erreur règle '{name}' {proto}: {stderr}")
                 return False
@@ -375,7 +481,7 @@ class FirewallManager:
             return False
 
         # 4. Appliquer les règles utilisateur
-        rules = self.firewall.get('rules', [])
+        rules = self.firewall.get("rules", [])
         if not rules:
             self.logger.info("Aucune règle firewall à appliquer")
             return True
@@ -403,21 +509,29 @@ class FirewallManager:
 
         # Politiques par défaut
         print("\n--- Politiques par défaut ---")
-        for chain in ['INPUT', 'FORWARD', 'OUTPUT']:
+        for chain in ["INPUT", "FORWARD", "OUTPUT"]:
             success, stdout, _ = self._run_command(
-                f"iptables -L {chain} -n | head -1", check=False
+                ["iptables", "-L", chain, "-n"], check=False
             )
             if success:
-                print(f"  {stdout.strip()}")
+                lines = stdout.split("\n")
+                if lines and "Chain" in lines[0]:
+                    header = lines[0]
+                    print(f"  {header}")
+                    for line in lines[1:]:
+                        if line.strip():
+                            print(f"  {line}")
+                else:
+                    print(f"  {stdout.strip()}")
 
         # Règles YARP-FW
         print("\n--- Règles YARP Firewall ---")
         success, stdout, _ = self._run_command(
-            "iptables -L FORWARD -n --line-numbers", check=False
+            ["iptables", "-L", "FORWARD", "-n", "--line-numbers"], check=False
         )
         if success:
-            lines = stdout.split('\n')
-            yarp_rules = [line for line in lines if 'YARP-FW' in line]
+            lines = stdout.split("\n")
+            yarp_rules = [line for line in lines if "YARP-FW" in line]
             if yarp_rules:
                 for rule in yarp_rules:
                     print(f"  {rule}")
@@ -427,11 +541,15 @@ class FirewallManager:
         # Règles stateful
         print("\n--- Règles Stateful ---")
         success, stdout, _ = self._run_command(
-            "iptables -L INPUT -n --line-numbers", check=False
+            ["iptables", "-L", "INPUT", "-n", "--line-numbers"], check=False
         )
         if success:
-            lines = stdout.split('\n')
-            stateful_rules = [line for line in lines if 'YARP-FW-STATEFUL' in line or 'YARP-FW-LOOPBACK' in line]
+            lines = stdout.split("\n")
+            stateful_rules = [
+                line
+                for line in lines
+                if "YARP-FW-STATEFUL" in line or "YARP-FW-LOOPBACK" in line
+            ]
             if stateful_rules:
                 for rule in stateful_rules:
                     print(f"  {rule}")
