@@ -23,12 +23,12 @@ def _validate_interface_name(name: str) -> bool:
     """Valide qu'un nom d'interface réseau est valide.
 
     Les noms d'interface doivent contenir uniquement des caractères alphanumériques,
-    des traits du soulignement, et des tirets. Ils ne doivent pas commencer par un chiffre.
+    des traits du soulignement, des tirets et des points (VLANs, ex: eth0.100).
+    Ils ne doivent pas commencer par un chiffre.
     """
     if not name or not isinstance(name, str):
         return False
-    # Pattern : doit contenir alphanumérique + _ - , ne pas commencer par un chiffre
-    pattern = r"^[a-zA-Z][a-zA-Z0-9_-]*$"
+    pattern = r"^[a-zA-Z][a-zA-Z0-9._-]*$"
     return bool(re.match(pattern, name))
 
 
@@ -274,28 +274,28 @@ class FirewallManager:
         if rule.get("in_interface"):
             iface = rule["in_interface"]
             if not _validate_interface_name(iface):
-                self.logger.warning(f"Interface invalide ignorée: {iface}")
+                self.logger.warning(f"Interface invalide: {iface}")
                 return None
             parts.extend(["-i", iface])
 
         if rule.get("out_interface"):
             iface = rule["out_interface"]
             if not _validate_interface_name(iface):
-                self.logger.warning(f"Interface invalide ignorée: {iface}")
+                self.logger.warning(f"Interface invalide: {iface}")
                 return None
             parts.extend(["-o", iface])
 
         if rule.get("source") and rule["source"].lower() != "any":
             src = rule["source"]
             if not _validate_ip_or_cidr(src):
-                self.logger.warning(f"Source IP invalide ignorée: {src}")
+                self.logger.warning(f"Source IP invalide: {src}")
                 return None
             parts.extend(["-s", src])
 
         if rule.get("destination") and rule["destination"].lower() != "any":
             dst = rule["destination"]
             if not _validate_ip_or_cidr(dst):
-                self.logger.warning(f"Destination IP invalide ignorée: {dst}")
+                self.logger.warning(f"Destination IP invalide: {dst}")
                 return None
             parts.extend(["-d", dst])
 
@@ -361,6 +361,11 @@ class FirewallManager:
 
         comment = f"YARP-FW-RULE-{rule_name}"
         match_args_list = self._build_match_args(rule)
+        if match_args_list is None:
+            self.logger.error(
+                f"Règle '{name}' [{chain}]: critère de matching invalide, règle non appliquée"
+            )
+            return False
         description = self._describe_rule(rule)
 
         # --- Cas "any" : tout le trafic, pas de filtre protocole ---

@@ -23,12 +23,12 @@ def _validate_interface_name(name: str) -> bool:
     """Valide qu'un nom d'interface réseau est valide.
 
     Les noms d'interface doivent contenir uniquement des caractères alphanumériques,
-    des traits du soulignement, et des tirets. Ils ne doivent pas commencer par un chiffre.
+    des traits du soulignement, des tirets et des points (VLANs, ex: eth0.100).
+    Ils ne doivent pas commencer par un chiffre.
     """
     if not name or not isinstance(name, str):
         return False
-    # Pattern : doit contenir alphanumérique + _ - , ne pas commencer par un chiffre
-    pattern = r"^[a-zA-Z][a-zA-Z0-9_-]*$"
+    pattern = r"^[a-zA-Z][a-zA-Z0-9._-]*$"
     return bool(re.match(pattern, name))
 
 
@@ -199,8 +199,8 @@ class NATManager:
 
                 # Validate interface name
                 if not _validate_interface_name(interface):
-                    self.logger.warning(f"Interface invalide ignorée pour {interface}")
-                    continue
+                    self.logger.error(f"Interface invalide pour le masquerading: {interface}")
+                    return False
 
                 # Règle MASQUERADE pour chaque source (command list)
                 args = [
