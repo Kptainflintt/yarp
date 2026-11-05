@@ -10,6 +10,7 @@ import re
 import os
 import time
 from pathlib import Path
+import ipaddress
 
 YARP_DIR = "/opt/yarp"
 sys.path.insert(0, os.path.join(YARP_DIR, 'core'))
@@ -25,38 +26,69 @@ class NetworkManager:
         # Initialiser le logger avec la config YARP
         logging_config = config.get_logging()
         self.logger = get_logger("network", {'logging': logging_config})
+
+    def _validate_interface_name(self, iface):
+        """Validate network interface name to prevent shell injection"""
+        if not iface or not isinstance(iface, str):
+            return False
+        # Check if interface exists on the system
+        success, _, _ = self._run_command(["ip", "link", "show", iface], check=False)
+        return success
+
+    def _validate_ipv4_address(self, address):
+        """Validate IPv4 address format (accepts both plain addresses and CIDR prefixes)"""
+        try:
+            ip = ipaddress.ip_interface(address)
+            return ip.version == 4
+        except (ipaddress.AddressValueError, ValueError):
+            return False
+
+    def _validate_ipv6_address(self, address):
+        """Validate IPv6 address format (accepts both plain addresses and CIDR prefixes)"""
+        try:
+            ip = ipaddress.ip_interface(address)
+            return ip.version == 6
+        except (ipaddress.AddressValueError, ValueError):
+            return False
     
-    def _run_command(self, cmd, check=True):
+    def _run_command(self, args, check=True):
         """Exécute une commande système avec logging"""
         start_time = time.time()
         try:
             result = subprocess.run(
-                cmd,
-                shell=True,
+                args,
+                shell=False,
                 capture_output=True,
                 text=True,
                 check=check
             )
             duration_ms = int((time.time() - start_time) * 1000)
 
-            # Logger l'exécution commande
-            self.logger.command_execution(cmd, result.returncode, duration_ms)
+            # Convert args list to string for logging
+            cmd_str = " ".join(args)
+            self.logger.command_execution(cmd_str, result.returncode, duration_ms)
 
             return result.returncode == 0, result.stdout, result.stderr
         except subprocess.CalledProcessError as e:
             duration_ms = int((time.time() - start_time) * 1000)
-            self.logger.command_execution(cmd, e.returncode, duration_ms)
+            cmd_str = " ".join(args)
+            self.logger.command_execution(cmd_str, e.returncode, duration_ms)
             return False, e.stdout, e.stderr
     
     def interface_exists(self, iface):
-        """Vérifie si une interface existe"""
-        success, stdout, _ = self._run_command(f"ip link show {iface}", check=False)
-        return success
+        """Vérifie si una interface existe"""
+        if not self._validate_interface_name(iface):
+            return False
+        return self._run_command(["ip", "link", "show", iface], check=False)[0]
     
     def bring_interface_up(self, iface):
-        """Active une interface"""
+        """Active una interface"""
+        if not self._validate_interface_name(iface):
+            self.logger.error(f"Interface invalida: {iface}")
+            return False
+
         self.logger.debug(f"Activation de l'interface {iface}")
-        success, _, stderr = self._run_command(f"ip link set {iface} up")
+        success, _, stderr = self._run_command(["ip", "link", "set", iface, "up"])
 
         if success:
             self.logger.interface_operation("activation", iface, "success")
@@ -66,9 +98,13 @@ class NetworkManager:
         return success
     
     def bring_interface_down(self, iface):
-        """Désactive une interface"""
+        """Désactive una interface"""
+        if not self._validate_interface_name(iface):
+            self.logger.error(f"Interface invalida: {iface}")
+            return False
+
         self.logger.debug(f"Désactivation de l'interface {iface}")
-        success = self._run_command(f"ip link set {iface} down")[0]
+        success = self._run_command(["ip", "link", "set", iface, "down"])[0]
 
         if success:
             self.logger.interface_operation("deactivation", iface, "success")
@@ -78,9 +114,13 @@ class NetworkManager:
         return success
     
     def flush_addresses(self, iface):
-        """Supprime toutes les adresses d'une interface"""
+        """Supprime toutes las adresses de una interface"""
+        if not self._validate_interface_name(iface):
+            self.logger.error(f"Interface invalida: {iface}")
+            return False
+
         self.logger.debug(f"Nettoyage des adresses de {iface}")
-        success, _, stderr = self._run_command(f"ip addr flush dev {iface}", check=False)
+        success, _, stderr = self._run_command(["ip", "addr", "flush", "dev", iface], check=False)
 
         if success:
             self.logger.interface_operation("flush_addresses", iface, "success")
@@ -88,10 +128,18 @@ class NetworkManager:
             self.logger.interface_operation("flush_addresses", iface, "failed", error=stderr)
     
     def set_ipv4_address(self, iface, address):
-        """Configure une adresse IPv4"""
+        """Configure una adresse IPv4"""
+        if not self._validate_interface_name(iface):
+            self.logger.error(f"Interface invalida: {iface}")
+            return False
+
+        if not self._validate_ipv4_address(address):
+            self.logger.error(f"Adresse IPv4 invalida: {address}")
+            return False
+
         self.logger.info(f"Configuration IPv4 de {iface}: {address}")
         success, _, stderr = self._run_command(
-            f"ip addr add {address} dev {iface}"
+            ["ip", "addr", "add", address, "dev", iface]
         )
 
         if success:
@@ -102,20 +150,32 @@ class NetworkManager:
         return success
     
     def set_ipv6_address(self, iface, address):
-        """Configure une adresse IPv6"""
+        """Configure una adresse IPv6"""
+        if not self._validate_interface_name(iface):
+            self.logger.error(f"Interface invalida: {iface}")
+            return False
+
+        if not self._validate_ipv6_address(address):
+            self.logger.error(f"Adresse IPv6 invalida: {address}")
+            return False
+
         print(f"Configuration IPv6 de {iface}: {address}")
         success, _, stderr = self._run_command(
-            f"ip -6 addr add {address} dev {iface}"
+            ["ip", "-6", "addr", "add", address, "dev", iface]
         )
         if not success:
-            print(f"Erreur IPv6 sur {iface}: {stderr}", file=sys.stderr)
+            print(f"Erreur IPv6 sobre {iface}: {stderr}", file=sys.stderr)
         return success
     
     def has_dhcp_address(self, iface):
-        """Vérifie si l'interface a déjà une adresse IP (probablement DHCP)"""
-        success, stdout, _ = self._run_command(f"ip -4 addr show {iface} | grep inet", check=False)
+        """Vérifie si l'interface ya ya une adresse IP (probablemente DHCP)"""
+        if not self._validate_interface_name(iface):
+            return False
+
+        # Use grep as a separate command to avoid shell piping
+        success, stdout, _ = self._run_command(["ip", "-4", "addr", "show", iface], check=False)
         if success and stdout.strip():
-            # Exclure les adresses link-local (169.254.x.x)
+            # Excluye las adresses link-local (169.254.x.x)
             lines = stdout.strip().split('\n')
             for line in lines:
                 if 'inet ' in line and '169.254.' not in line:
@@ -123,54 +183,60 @@ class NetworkManager:
         return False
 
     def is_dhcp_running(self, iface):
-        """Vérifie si un client DHCP est déjà actif pour cette interface"""
-        success, _, _ = self._run_command(f"pgrep -f 'udhcpc.*{iface}'", check=False)
+        """Vérifique si un client DHCP ya actif pour esta interface"""
+        if not iface:
+            return False
+        success, _, _ = self._run_command(["pgrep", "-f", f"udhcpc.*{iface}"], check=False)
         return success
 
     def enable_dhcp(self, iface):
-        """Active DHCP sur une interface"""
-        print(f"Activation DHCP sur {iface}")
+        """Active DHCP sobre una interface"""
+        print(f"Activation DHCP sobre {iface}")
 
-        # Vérifier si l'interface a déjà une adresse IP
+        # Vérifier si l'interface ya ya una adresse IP
         if self.has_dhcp_address(iface):
-            print(f"Interface {iface} a déjà une adresse IP")
+            print(f"Interface {iface} ya ya una adresse IP")
 
-            # Vérifier si un client DHCP est actif
+            # Vérifier si un client DHCP ya actif
             if self.is_dhcp_running(iface):
-                print(f"Client DHCP déjà actif sur {iface} - configuration préservée")
+                print(f"Client DHCP ya actif sobre {iface} - configuration preservada")
                 return True
             else:
-                print(f"Adresse IP présente mais pas de client DHCP - redémarrage")
+                print(f"Adresse IP presente pero pas de client DHCP - redémarrage")
 
-        # Arrêter les clients DHCP existants pour cette interface
-        self._run_command(f"pkill -f 'dhcpcd.*{iface}'", check=False)
-        self._run_command(f"pkill -f 'udhcpc.*{iface}'", check=False)
+        # Arrêter las clients DHCP existants para esta interface
+        self._run_command(["pkill", "-f", f"dhcpcd.*{iface}"], check=False)
+        self._run_command(["pkill", "-f", f"udhcpc.*{iface}"], check=False)
 
-        # Attendre un peu que les processus se terminent
+        # Attendre una bit que los procesos se terminent
         time.sleep(1)
 
-        # Démarrer udhcpc en arrière-plan avec timeout
-        print(f"Démarrage du client DHCP pour {iface}...")
+        # Démarrage udhcpc en arrière-plan con timeout
+        print(f"Démarrage del client DHCP para {iface}...")
 
-        # Utiliser timeout pour éviter le blocage
+        # Utilizar timeout para evitar el bloqueo
         success, stdout, stderr = self._run_command(
-            f"timeout 30 udhcpc -i {iface} -t 3 -T 10 -A 10 -n",
+            ["timeout", "30", "udhcpc", "-i", iface, "-t", "3", "-T", "10", "-A", "10", "-n"],
             check=False
         )
 
         if success:
-            print(f"DHCP configuré avec succès sur {iface}")
+            print(f"DHCP configurado con éxito sobre {iface}")
             return True
         else:
-            print(f"DHCP timeout ou erreur sur {iface}: {stderr}", file=sys.stderr)
-            print(f"L'interface {iface} restera sans configuration IP", file=sys.stderr)
+            print(f"DHCP timeout o error sobre {iface}: {stderr}", file=sys.stderr)
+            print(f"L'interface {iface} restera sin configuration IP", file=sys.stderr)
             return False
     
     def enable_ipv6_auto(self, iface):
         """Active l'autoconfiguration IPv6"""
-        print(f"Activation autoconfiguration IPv6 sur {iface}")
-        self._run_command(f"sysctl -w net.ipv6.conf.{iface}.autoconf=1")
-        self._run_command(f"sysctl -w net.ipv6.conf.{iface}.accept_ra=1")
+        if not self._validate_interface_name(iface):
+            self.logger.error(f"Interface invalida: {iface}")
+            return False
+
+        print(f"Activation autoconfiguration IPv6 sobre {iface}")
+        self._run_command(["sysctl", "-w", f"net.ipv6.conf.{iface}.autoconf=1"])
+        self._run_command(["sysctl", "-w", f"net.ipv6.conf.{iface}.accept_ra=1"])
         return True
     
     def configure_interface(self, iface, config):

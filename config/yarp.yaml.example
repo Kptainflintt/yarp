@@ -98,7 +98,7 @@ firewall:
   # action : accept, drop, reject
   rules:
     # Autoriser le SSH vers le routeur (INPUT, pas FORWARD)
-    - name: "Allow SSH"
+    - name: "Allow_SSH"
       chain: input
       source: any
       in_interface: eth1
@@ -107,7 +107,7 @@ firewall:
       action: accept
 
     # Autoriser le trafic HTTP/HTTPS et DNS du LAN vers le WAN
-    - name: "Allow Internet"
+    - name: "Allow_Internet"
       chain: forward
       source: 192.168.1.0/24
       out_interface: eth0
@@ -117,7 +117,7 @@ firewall:
       action: accept
 
     # Autoriser le trafic HTTP depuis le WAN vers un serveur LAN
-    - name: "Allow HTTP from WAN"
+    - name: "Allow_HTTP_from_WAN"
       chain: forward
       in_interface: eth0
       destination: 192.168.1.100
@@ -126,7 +126,7 @@ firewall:
       action: accept
 
     # Autoriser le ping (ICMP) du LAN vers le WAN
-    - name: "Allow Ping out"
+    - name: "Allow_Ping_out"
       chain: forward
       in_interface: eth1
       out_interface: eth0
@@ -135,7 +135,7 @@ firewall:
       action: accept
 
     # Autoriser un range de ports pour une application
-    - name: "Allow app ports"
+    - name: "Allow_app_ports"
       chain: forward
       source: 192.168.1.0/24
       out_interface: eth0
@@ -144,7 +144,7 @@ firewall:
       action: accept
 
     # Autoriser les tunnels GRE (protocole L3, pas de ports)
-    - name: "Allow GRE tunnels"
+    - name: "Allow_GRE_tunnels"
       chain: input
       in_interface: eth0
       destination: 192.168.1.1
@@ -153,7 +153,7 @@ firewall:
       action: accept
 
     # Bloquer tout le reste du WAN vers le LAN
-    - name: "Block WAN to LAN"
+    - name: "Block_WAN_to_LAN"
       chain: forward
       in_interface: eth0
       out_interface: eth1
