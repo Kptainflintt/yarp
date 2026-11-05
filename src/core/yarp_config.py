@@ -11,6 +11,26 @@ import re
 import ipaddress
 from pathlib import Path
 
+
+def _normalize_rule_name(name: str):
+    """Normalise un nom de règle firewall pour le commentaire iptables.
+
+    Doit rester synchronisée avec src/modules/firewall.py : les espaces
+    deviennent des traits du soulignement et les caractères non
+    alphanumériques (hors `_`, `.`, `-`) sont supprimés.
+    Retourne None si le nom est vide ou invalide.
+    """
+    if not name or not isinstance(name, str):
+        return None
+    normalized = re.sub(r"\s+", "_", name.strip())
+    normalized = re.sub(r"[^a-zA-Z0-9._-]", "", normalized)
+    if not normalized:
+        return None
+    if not normalized[0].isalpha():
+        normalized = f"rule-{normalized}"
+    return normalized
+
+
 class YARPConfig:
     def __init__(self, config_file="/etc/yarp/config.yaml"):
         self.config_file = config_file
@@ -61,7 +81,7 @@ class YARPConfig:
         self._validate_system(errors)
         self._validate_interfaces(errors, warnings)
         self._validate_routes(errors)
-        self._validate_firewall(errors)
+        self._validate_firewall(errors, warnings)
 
         # Afficher les avertissements (non bloquants)
         if warnings:
@@ -210,7 +230,7 @@ class YARPConfig:
     #  Validation : firewall                                               #
     # ------------------------------------------------------------------ #
 
-    def _validate_firewall(self, errors):
+    def _validate_firewall(self, errors, warnings):
         """Valide la section firewall (politiques, stateful, règles)."""
         if 'firewall' not in self.config:
             return
@@ -222,7 +242,7 @@ class YARPConfig:
 
         self._validate_firewall_defaults(fw, errors)
         self._validate_firewall_stateful(fw, errors)
-        self._validate_firewall_rules(fw, errors)
+        self._validate_firewall_rules(fw, errors, warnings)
 
     def _validate_firewall_defaults(self, fw, errors):
         """Valide les politiques par défaut du firewall."""
@@ -243,7 +263,7 @@ class YARPConfig:
             if not isinstance(fw['stateful'], bool):
                 errors.append("firewall.stateful doit être true/false")
 
-    def _validate_firewall_rules(self, fw, errors):
+    def _validate_firewall_rules(self, fw, errors, warnings):
         """Valide la liste des règles firewall."""
         if 'rules' not in fw:
             return
@@ -258,13 +278,27 @@ class YARPConfig:
             if not isinstance(rule, dict):
                 errors.append(f"{prefix}: doit être un dictionnaire")
                 continue
-            self._validate_firewall_rule(rule, prefix, interface_names, errors)
+            self._validate_firewall_rule(rule, prefix, interface_names, errors, warnings)
 
-    def _validate_firewall_rule(self, rule, prefix, interface_names, errors):
+    def _validate_firewall_rule(self, rule, prefix, interface_names, errors, warnings):
         """Valide une règle firewall individuelle."""
         # Champs obligatoires
         if 'name' not in rule:
             errors.append(f"{prefix}: 'name' est requis")
+        elif not isinstance(rule['name'], str) or not rule['name'].strip():
+            errors.append(f"{prefix}: 'name' doit être une chaîne non vide")
+        else:
+            normalized = _normalize_rule_name(rule['name'])
+            if normalized is None:
+                errors.append(
+                    f"{prefix}: 'name' invalide: '{rule['name']}' "
+                    f"(aucun caractère alphanumérique)"
+                )
+            elif normalized != rule['name']:
+                warnings.append(
+                    f"{prefix}: le nom '{rule['name']}' sera normalisé "
+                    f"en '{normalized}' dans le tag iptables"
+                )
 
         if 'action' not in rule:
             errors.append(f"{prefix}: 'action' est requis")
