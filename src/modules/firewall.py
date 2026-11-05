@@ -46,16 +46,22 @@ def _validate_ip_or_cidr(value: str) -> bool:
         return False
 
 
-def _validate_rule_name(name: str) -> bool:
-    """Valide qu'un nom de règle firewall est valide.
+def _normalize_rule_name(name: str):
+    """Normalise un nom de règle firewall pour le commentaire iptables.
 
-    Les noms doivent contenir uniquement des caractères alphanumériques,
-    des traits du soulignement, des tirets, et des points.
+    Les espaces sont remplacés par des traits du soulignement et les
+    caractères non alphanumériques (hors `_`, `.`, `-`) sont supprimés.
+    Retourne None si le nom est vide ou invalide.
     """
     if not name or not isinstance(name, str):
-        return False
-    pattern = r"^[a-zA-Z][a-zA-Z0-9._-]*$"
-    return bool(re.match(pattern, name))
+        return None
+    normalized = re.sub(r"\s+", "_", name.strip())
+    normalized = re.sub(r"[^a-zA-Z0-9._-]", "", normalized)
+    if not normalized:
+        return None
+    if not normalized[0].isalpha():
+        normalized = f"rule-{normalized}"
+    return normalized
 
 
 def _run_command_list(args: list, logger, check: bool = True):
@@ -346,12 +352,14 @@ class FirewallManager:
             target = action  # ACCEPT ou DROP
             target_args = []
 
-        # Validation du nom de la règle
-        if not _validate_rule_name(name):
+        rule_name = _normalize_rule_name(name)
+        if not rule_name:
             self.logger.error(f"Nom de règle invalide : {name}")
             return False
+        if rule_name != name:
+            self.logger.debug(f"Nom de règle '{name}' normalisé en '{rule_name}'")
 
-        comment = f"YARP-FW-RULE-{name}"
+        comment = f"YARP-FW-RULE-{rule_name}"
         match_args_list = self._build_match_args(rule)
         description = self._describe_rule(rule)
 

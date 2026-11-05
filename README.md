@@ -184,7 +184,7 @@ firewall:
     output: accept
   stateful: true
   rules:
-    - name: "Allow Internet"
+    - name: "Allow_Internet"
       chain: forward
       source: 192.168.1.0/24
       out_interface: eth0
@@ -193,7 +193,7 @@ firewall:
         udp: 53
       action: accept
 
-    - name: "Block WAN to LAN"
+    - name: "Block_WAN_to_LAN"
       chain: forward
       in_interface: eth0
       out_interface: eth1
@@ -316,7 +316,7 @@ Chaque règle contient :
 
 | Champ | Requis | Description |
 |---|---|---|
-| `name` | oui | Nom descriptif (utilisé comme tag iptables `YARP-FW-RULE-<name>`) |
+| `name` | oui | Nom descriptif (utilisé comme tag iptables `YARP-FW-RULE-<name>` ; les espaces et caractères non alphanumériques sont automatiquement normalisés, ex: `Allow SSH` → `Allow_SSH`) |
 | `chain` | oui | Chaîne iptables : `input`, `forward` ou `output` |
 | `source` | non | IP, CIDR source ou `any` (ex: `192.168.1.0/24`, `10.0.0.1`, `any`) |
 | `destination` | non | IP, CIDR destination ou `any` |
@@ -396,7 +396,7 @@ firewall:
   stateful: true
   rules:
     # Autoriser le SSH vers le routeur (INPUT)
-    - name: "Allow SSH"
+    - name: "Allow_SSH"
       chain: input
       source: any
       in_interface: eth1
@@ -405,7 +405,7 @@ firewall:
       action: accept
 
     # Autoriser HTTP/HTTPS et DNS du LAN vers le WAN (FORWARD)
-    - name: "Allow Internet"
+    - name: "Allow_Internet"
       chain: forward
       source: 192.168.1.0/24
       out_interface: eth0
@@ -415,7 +415,7 @@ firewall:
       action: accept
 
     # Autoriser un serveur web accessible depuis le WAN
-    - name: "Allow HTTP from WAN"
+    - name: "Allow_HTTP_from_WAN"
       chain: forward
       in_interface: eth0
       destination: 192.168.1.100
@@ -424,7 +424,7 @@ firewall:
       action: accept
 
     # Autoriser le ping sortant
-    - name: "Allow Ping out"
+    - name: "Allow_Ping_out"
       chain: forward
       in_interface: eth1
       out_interface: eth0
@@ -433,7 +433,7 @@ firewall:
       action: accept
 
     # Autoriser un range de ports applicatif
-    - name: "Allow app ports"
+    - name: "Allow_app_ports"
       chain: forward
       source: 192.168.1.0/24
       out_interface: eth0
@@ -442,7 +442,7 @@ firewall:
       action: accept
 
     # Autoriser les tunnels GRE vers le routeur (INPUT)
-    - name: "Allow GRE tunnels"
+    - name: "Allow_GRE_tunnels"
       chain: input
       in_interface: eth0
       destination: 192.168.1.1
@@ -451,7 +451,7 @@ firewall:
       action: accept
 
     # Bloquer tout le reste du WAN vers le LAN
-    - name: "Block WAN to LAN"
+    - name: "Block_WAN_to_LAN"
       chain: forward
       in_interface: eth0
       out_interface: eth1
