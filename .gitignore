@@ -12,5 +12,4 @@ dist/
 .idea/
 .vscode/
 *.log
-test/
 AGENTS.md
