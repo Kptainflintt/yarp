@@ -11,12 +11,33 @@ import time
 import ipaddress
 import shlex
 import re
+import shutil
 
 YARP_DIR = "/opt/yarp"
 sys.path.insert(0, os.path.join(YARP_DIR, "core"))
 
 from yarp_config import YARPConfig
 from yarp_logger import get_logger
+
+
+# Constantes pour les snapshots
+SNAPSHOT_V4 = "firewall-before.rules"
+SNAPSHOT_V6 = "firewall-before-v6.rules"
+
+
+class RuleBuildError(Exception):
+    """Exception levée lorsqu'une règle firewall est invalide lors de la génération.
+    
+    Attributs:
+        rule_index: int - Index 1-based de la règle dans firewall.rules:
+        rule_name: str - Nom de la règle fautive
+        message: str - Message d'erreur descriptif
+    """
+    def __init__(self, rule_index: int, rule_name: str, message: str):
+        self.rule_index = rule_index
+        self.rule_name = rule_name
+        self.message = message
+        super().__init__(f"Règle {rule_index} ('{rule_name}'): {message}")
 
 
 def _validate_interface_name(name: str) -> bool:
@@ -111,6 +132,35 @@ class FirewallManager:
             return False, "", ""
 
     # ------------------------------------------------------------------ #
+    #  Helpers pour la génération transactionnelle                         #
+    # ------------------------------------------------------------------ #
+
+    @staticmethod
+    def _state_dir():
+        """Retourne le répertoire d'état YARP (YARP_STATE_DIR ou /var/lib/yarp)."""
+        return os.environ.get("YARP_STATE_DIR", "/var/lib/yarp")
+
+    @staticmethod
+    def _which(bin_name):
+        """Trouve un binaire en priorisant YARP_BIN_DIR, puis PATH.
+        
+        Args:
+            bin_name: Nom du binaire à trouver
+            
+        Returns:
+            Chemin absolu du binaire ou None si non trouvé
+        """
+        # Vérifier YARP_BIN_DIR d'abord
+        yarp_bin_dir = os.environ.get("YARP_BIN_DIR")
+        if yarp_bin_dir:
+            bin_path = os.path.join(yarp_bin_dir, bin_name)
+            if os.path.isfile(bin_path) and os.access(bin_path, os.X_OK):
+                return bin_path
+        
+        # Sinon utiliser shutil.which
+        return shutil.which(bin_name)
+
+    # ------------------------------------------------------------------ #
     #  Résolution des ports                                                #
     # ------------------------------------------------------------------ #
 
@@ -146,6 +196,144 @@ class FirewallManager:
             return ["--dport", ports[0]]
         else:
             return ["-m", "multiport", "--dports", ",".join(ports)]
+
+    # ------------------------------------------------------------------ #
+    #  Génération des arguments de règle utilisateur (pour ruleset)       #
+    # ------------------------------------------------------------------ #
+
+    def _user_rule_args(self, rule, rule_index):
+        """Génère les arguments iptables pour une règle utilisateur.
+        
+        Retourne une liste d'arguments SANS le préfixe 'iptables' :
+        ["-A", CHAIN, *match_args, "-p", proto, *port_args, "-m", "comment", 
+         "--comment=YARP-FW-RULE-<name>", "-j", target]
+        + ["--reject-with", "icmp-port-unreachable"] si action == reject
+        
+        Retourne None si la règle est invalide.
+        
+        Args:
+            rule: Dict de configuration de la règle
+            rule_index: Index 1-based de la règle (pour les logs)
+            
+        Returns:
+            list[str] ou None si invalide
+        """
+        name = rule.get("name", "unnamed")
+        chain = rule.get("chain", "forward").upper()
+        
+        # Validation stricte de la chaîne
+        valid_chains = {"INPUT", "FORWARD", "OUTPUT"}
+        if chain not in valid_chains:
+            self.logger.error(f"Chaîne de règle invalide : {chain}. Doit être INPUT, FORWARD ou OUTPUT.")
+            return None
+        
+        protocols = rule.get("protocols", "any")
+        action = rule.get("action", "accept").upper()
+        
+        # Validation stricte de l'action
+        valid_actions = {"ACCEPT", "DROP", "REJECT"}
+        if action not in valid_actions:
+            self.logger.error(f"Action de règle invalide : {action}. Doit être accept, drop ou reject.")
+            return None
+        
+        # Normaliser le nom de la règle
+        rule_name = _normalize_rule_name(name)
+        if not rule_name:
+            self.logger.error(f"Nom de règle invalide : {name}")
+            return None
+        
+        # Construire le commentaire
+        comment = f"YARP-FW-RULE-{rule_name}"
+        
+        # Construire les arguments de matching
+        match_args_list = self._build_match_args(rule)
+        if match_args_list is None:
+            self.logger.error(
+                f"Règle '{name}' [{chain}]: critère de matching invalide"
+            )
+            return None
+        
+        # Construire la description pour les logs
+        description = self._describe_rule(rule)
+        
+        # Préparer les arguments de base
+        args = ["-A", chain]
+        
+        # Ajouter les arguments de matching
+        if match_args_list:
+            args.extend(match_args_list)
+        
+        # Gérer les protocoles
+        l3_protocols = ("icmp", "gre", "esp", "ah", "ipip", "ospf", "vrrp")
+        l4_protocols = ("tcp", "udp", "sctp")
+        
+        if protocols == "any":
+            # Pas de filtre protocole
+            pass
+        elif isinstance(protocols, dict):
+            # Protocoles spécifiques
+            proto_args = []
+            for proto, port_value in protocols.items():
+                proto = proto.lower()
+                
+                if proto in l3_protocols:
+                    # Protocoles L3 : pas de ports
+                    proto_args.extend(["-p", proto])
+                elif proto in l4_protocols:
+                    # Protocoles L4 : avec ports
+                    ports = self._normalize_ports(port_value)
+                    if not ports:
+                        self.logger.warning(
+                            f"Règle '{name}': aucun port valide pour {proto}, ignoré"
+                        )
+                        continue
+                    port_args = self._build_port_args(ports)
+                    proto_args.extend(["-p", proto] + port_args)
+                else:
+                    self.logger.warning(
+                        f"Règle '{name}': protocole '{proto}' non supporté, ignoré"
+                    )
+                    continue
+            
+            if proto_args:
+                args.extend(proto_args)
+        else:
+            self.logger.error(
+                f"Règle '{name}': protocols doit être un dict ou 'any', "
+                f"reçu {type(protocols).__name__}"
+            )
+            return None
+        
+        # Ajouter le commentaire
+        args.extend(["-m", "comment", f"--comment={comment}"])
+        
+        # Ajouter la cible et les arguments supplémentaires
+        if action == "REJECT":
+            args.extend(["-j", "REJECT", "--reject-with", "icmp-port-unreachable"])
+        else:
+            args.extend(["-j", action])
+        
+        # Émettre le log de génération (comme dans _apply_rule)
+        if protocols == "any":
+            self.logger.info(f"Règle '{name}' [{chain}]: {description} any → {action.lower()}")
+        else:
+            # Pour les protocoles spécifiques, générer un log approprié
+            proto_desc = []
+            if isinstance(protocols, dict):
+                for proto, port_value in protocols.items():
+                    proto = proto.lower()
+                    if proto in l3_protocols:
+                        proto_desc.append(proto)
+                    elif proto in l4_protocols:
+                        ports = self._normalize_ports(port_value)
+                        if ports:
+                            proto_desc.append(f"{proto}/{','.join(ports)}")
+            if proto_desc:
+                self.logger.info(f"Règle '{name}' [{chain}]: {description} {'/'.join(proto_desc)} → {action.lower()}")
+            else:
+                self.logger.info(f"Règle '{name}' [{chain}]: {description} → {action.lower()}")
+        
+        return args
 
     # ------------------------------------------------------------------ #
     #  Politiques par défaut                                               #
@@ -227,6 +415,135 @@ class FirewallManager:
 
         self.logger.info("Règles stateful appliquées")
         return True
+
+    # ------------------------------------------------------------------ #
+    #  Génération des rulesets (in-memory, sans appel iptables)            #
+    # ------------------------------------------------------------------ #
+
+    def _policies_for_restore(self):
+        """Retourne les politiques par défaut en format iptables-restore.
+
+        Retourne une liste de 3 tuples (chain, policy) dans l'ordre
+        INPUT, FORWARD, OUTPUT. REJECT → DROP avec warning.
+        """
+        defaults = self.firewall.get("default", {})
+
+        policy_map = {
+            "accept": "ACCEPT",
+            "drop": "DROP",
+            "reject": "REJECT",
+        }
+
+        chains = {
+            "input": "INPUT",
+            "forward": "FORWARD",
+            "output": "OUTPUT",
+        }
+
+        policies = []
+        for key, chain in chains.items():
+            policy = defaults.get(key, "accept")
+            iptables_policy = policy_map.get(policy.lower(), "ACCEPT")
+
+            # REJECT n'est pas supporté comme policy par iptables, on utilise DROP
+            if iptables_policy == "REJECT":
+                self.logger.warning(
+                    f"La policy REJECT n'est pas supportée par iptables pour {chain}, "
+                    f"utilisation de DROP"
+                )
+                iptables_policy = "DROP"
+
+            policies.append((chain, iptables_policy))
+
+        return policies
+
+    def _stateful_rules_restore(self):
+        """Retourne les règles stateful + loopback au format iptables-restore,
+        ou une liste vide si stateful est désactivé."""
+        if not self.firewall.get("stateful", False):
+            return []
+
+        return [
+            "-A INPUT -m state --state ESTABLISHED,RELATED "
+            "-m comment --comment=YARP-FW-STATEFUL-INPUT -j ACCEPT",
+            "-A FORWARD -m state --state ESTABLISHED,RELATED "
+            "-m comment --comment=YARP-FW-STATEFUL-FORWARD -j ACCEPT",
+            "-A INPUT -i lo -m comment --comment=YARP-FW-LOOPBACK -j ACCEPT",
+        ]
+
+    def build_v4_ruleset(self) -> tuple:
+        """Génère le payload iptables-restore IPv4 (in-memory, zéro iptables).
+
+        Returns:
+            (lines, meta) où :
+              - lines: liste de chaînes formant le payload iptables-restore
+              - meta : liste alignée sur lines (même longueur, mêmes index)
+                avec {"kind", "rule_index", "rule_name"}
+        """
+        lines = ["*filter"]
+        meta = [{"kind": "envelope", "rule_index": None, "rule_name": None}]
+
+        # Politiques par défaut
+        for chain, policy in self._policies_for_restore():
+            lines.append(f":{chain} {policy} [0:0]")
+            meta.append({"kind": "policy", "rule_index": None, "rule_name": None})
+
+        # Règles stateful + loopback
+        for stateful_line in self._stateful_rules_restore():
+            lines.append(stateful_line)
+            meta.append({"kind": "stateful", "rule_index": None, "rule_name": None})
+
+        # Règles utilisateur
+        rules = self.firewall.get("rules", [])
+        for idx, rule in enumerate(rules, start=1):
+            args = self._user_rule_args(rule, idx)
+            if args is None:
+                raise RuleBuildError(
+                    rule_index=idx,
+                    rule_name=rule.get("name", "unnamed"),
+                    message="règle utilisateur invalide, voir les logs pour le détail",
+                )
+            lines.append(" ".join(args))
+            meta.append({
+                "kind": "user",
+                "rule_index": idx,
+                "rule_name": _normalize_rule_name(rule.get("name", "unnamed")),
+            })
+
+        lines.append("COMMIT")
+        meta.append({"kind": "envelope", "rule_index": None, "rule_name": None})
+
+        self.logger.info(f"Ruleset v4 generated: {len(lines)} lines")
+        return lines, meta
+
+    def build_v6_ruleset(self) -> tuple:
+        """Génère le payload ip6tables-restore (in-memory, zéro ip6tables).
+
+        Même enveloppe et mêmes politiques que build_v4_ruleset, mais sans
+        règles utilisateur (pas de filtrage utilisateur IPv6 dans YARP).
+        Les règles stateful/loopback ne contiennent pas de littéral IPv4.
+
+        Returns:
+            (lines, meta) — même contrat que build_v4_ruleset
+        """
+        lines = ["*filter"]
+        meta = [{"kind": "envelope", "rule_index": None, "rule_name": None}]
+
+        # Politiques par défaut
+        for chain, policy in self._policies_for_restore():
+            lines.append(f":{chain} {policy} [0:0]")
+            meta.append({"kind": "policy", "rule_index": None, "rule_name": None})
+
+        # Règles stateful + loopback (identiques à v4, sans littéral IPv4)
+        for stateful_line in self._stateful_rules_restore():
+            lines.append(stateful_line)
+            meta.append({"kind": "stateful", "rule_index": None, "rule_name": None})
+
+        lines.append("COMMIT")
+        meta.append({"kind": "envelope", "rule_index": None, "rule_name": None})
+
+        self.logger.info(f"Ruleset v6 generated: {len(lines)} lines")
+        return lines, meta
 
     # ------------------------------------------------------------------ #
     #  Nettoyage des règles YARP existantes                                #
